@@ -1,0 +1,6 @@
+{
+  "name": "Voltra Tower",
+  "description": "Daily electricity usage & payment tracking platform for residential and office buildings",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
