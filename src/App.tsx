@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useVoltraStore, useAuthRole } from './3_frontend/hooks/useVoltraStore';
+import { useDarkMode } from './3_frontend/hooks/useDarkMode';
 import { Sidebar, ActiveTab } from './3_frontend/components/Sidebar';
 import { TopBar } from './3_frontend/components/TopBar';
 import { TrainerStyleInfoCard } from './3_frontend/components/TrainerStyleInfoCard';
@@ -18,17 +19,16 @@ import { formatCurrency, formatKwh, getStatusBadgeStyle, getStatusLabel } from '
 export default function App() {
   const store = useVoltraStore();
   const auth = useAuthRole();
+  const { isDark, toggleDarkMode } = useDarkMode();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [selectedFloorNumber, setSelectedFloorNumber] = useState<number | null>(null);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
 
-  // Calendar year / month state
   const currentYM = getCurrentYearMonth();
   const [calYear, setCalYear] = useState<number>(currentYM.year);
   const [calMonth, setCalMonth] = useState<number>(currentYM.month);
 
-  // Modals state
   const [isDayEntryModalOpen, setIsDayEntryModalOpen] = useState(false);
   const [selectedDateStr, setSelectedDateStr] = useState<string>('');
   const [selectedExistingEntry, setSelectedExistingEntry] = useState<UsageEntry | undefined>();
@@ -37,10 +37,8 @@ export default function App() {
   const [isSelectRoomModalOpen, setIsSelectRoomModalOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
-  // Global search query
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Active room determination
   const effectiveRoomId =
     auth.role === 'admin'
       ? selectedRoomId || 'room-3-14'
@@ -60,13 +58,12 @@ export default function App() {
     balance: 0,
     status: 'no_usage',
     daysLogged: 0,
-    appliedRate: 0.25,
+    appliedRate: 350,
   };
 
   const roomEntries = store.getRoomUsageEntries(room.id);
   const buildingSummary = store.getBuildingSummary(calYear, calMonth);
 
-  // Handlers
   const handleOpenDayModalForDate = (dateStr: string, existingEntry?: UsageEntry) => {
     setSelectedDateStr(dateStr);
     setSelectedExistingEntry(existingEntry);
@@ -105,10 +102,8 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#8bd3dd] via-[#f3d2c1] to-[#f5b2b2] p-2 sm:p-4 lg:p-6 font-sans text-black flex items-center justify-center">
-      {/* Outer rounded card container with 3px solid black border matching reference image */}
-      <div className="w-full max-w-[1440px] bg-[#f7f5f0] border-3 border-black rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row min-h-[90vh] relative">
-        {/* Fixed Left Sidebar */}
+    <div className="min-h-screen bg-gradient-to-br from-[#8bd3dd] via-[#f3d2c1] to-[#f5b2b2] dark:from-[#0c0f12] dark:via-[#12151a] dark:to-[#171a1f] p-2 sm:p-4 lg:p-6 font-sans text-black flex items-center justify-center">
+      <div className="w-full max-w-[1440px] bg-[#f7f5f0] dark:bg-[#101214] border-3 border-black dark:border-neutral-200 rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row min-h-[90vh] relative">
         <Sidebar
           activeTab={activeTab}
           onTabChange={(tab) => {
@@ -133,24 +128,23 @@ export default function App() {
           onCloseMobile={() => setIsMobileSidebarOpen(false)}
         />
 
-        {/* Main Content Pane */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto bg-[#f7f5f0]">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto bg-[#f7f5f0] dark:bg-[#101214]">
           <TopBar
             title={
               activeTab === 'home'
                 ? auth.role === 'admin'
                   ? 'Voltra Tower Admin'
-                  : `Tenant Portal • ${room.roomNumber}`
+                  : `Tenant Portal - ${room.roomNumber}`
                 : activeTab === 'floors'
                 ? selectedFloorNumber
                   ? `Floor ${selectedFloorNumber} Rooms`
-                  : 'Building Floors (1–8)'
+                  : 'Building Floors (1-8)'
                 : activeTab === 'rooms'
                 ? `Room ${room.roomNumber} Details`
                 : activeTab === 'payments'
                 ? 'Building Payments Ledger'
                 : activeTab === 'calendar'
-                ? `Calendar Log • ${room.roomNumber}`
+                ? `Calendar Log - ${room.roomNumber}`
                 : 'System Settings'
             }
             onBack={
@@ -165,12 +159,12 @@ export default function App() {
             onSearchChange={setSearchQuery}
             onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
             resetData={store.resetToSeedData}
+            isDark={isDark}
+            onToggleDark={toggleDarkMode}
           />
 
-          {/* TAB 1: HOME VIEW */}
           {activeTab === 'home' && (
             <div className="space-y-8">
-              {/* Admin Dashboard view */}
               {auth.role === 'admin' && !selectedFloorNumber && !selectedRoomId && (
                 <>
                   <AdminSummaryPanel
@@ -178,13 +172,12 @@ export default function App() {
                     onOpenRateConfig={() => setIsRateModalOpen(true)}
                   />
 
-                  {/* 8 Floors Cards Grid */}
                   <div>
                     <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-2xl font-serif font-black text-black">
+                      <h3 className="text-2xl font-serif font-black text-black dark:text-neutral-100">
                         Building Floors (8 Floors x 200 Rooms = 1,600 Rooms)
                       </h3>
-                      <span className="font-mono text-xs font-bold text-neutral-600 bg-white border border-black px-2.5 py-1 rounded-lg">
+                      <span className="font-mono text-xs font-bold text-neutral-600 dark:text-neutral-400 bg-white dark:bg-neutral-900 border border-black dark:border-neutral-200 px-2.5 py-1 rounded-lg">
                         Click any floor to view rooms
                       </span>
                     </div>
@@ -205,10 +198,8 @@ export default function App() {
                 </>
               )}
 
-              {/* Tenant Portal view OR Selected Room Detail view */}
               {(auth.role === 'tenant' || selectedRoomId) && (
                 <div className="space-y-6">
-                  {/* Highlight Trainer-style Info Card */}
                   <TrainerStyleInfoCard
                     room={room}
                     tenant={tenant}
@@ -223,7 +214,6 @@ export default function App() {
                     role={auth.role}
                   />
 
-                  {/* Interactive Monthly Calendar for this room */}
                   <CalendarGrid
                     year={calYear}
                     month={calMonth}
@@ -238,24 +228,23 @@ export default function App() {
                     appliedRate={roomStats.appliedRate}
                   />
 
-                  {/* Recent Logs Table */}
-                  <div className="bg-white border-3 border-black rounded-2xl p-5 shadow-none">
-                    <div className="flex items-center justify-between pb-3 border-b-2 border-black mb-4">
-                      <h3 className="font-serif font-black text-xl text-black">
-                        Recent Electricity & Payment Logs ({room.roomNumber})
+                  <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-5 shadow-none">
+                    <div className="flex items-center justify-between pb-3 border-b-2 border-black dark:border-neutral-700 mb-4">
+                      <h3 className="font-serif font-black text-xl text-black dark:text-neutral-100">
+                        Recent Electricity and Payment Logs ({room.roomNumber})
                       </h3>
                       <button
                         onClick={() => {
                           const todayStr = new Date().toISOString().split('T')[0];
                           handleOpenDayModalForDate(todayStr);
                         }}
-                        className="bg-black text-white hover:bg-neutral-800 font-mono font-bold text-xs px-3 py-1.5 rounded-lg border border-black cursor-pointer"
+                        className="bg-black dark:bg-neutral-100 text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-white font-mono font-bold text-xs px-3 py-1.5 rounded-lg border border-black dark:border-neutral-200 cursor-pointer"
                       >
                         + Log Today
                       </button>
                     </div>
 
-                    <div className="overflow-x-auto border-2 border-black rounded-xl">
+                    <div className="overflow-x-auto border-2 border-black dark:border-neutral-200 rounded-xl">
                       <table className="w-full text-left font-mono text-xs border-collapse">
                         <thead>
                           <tr className="bg-[#feca57] border-b-2 border-black text-black font-bold uppercase">
@@ -272,9 +261,9 @@ export default function App() {
                             <tr>
                               <td
                                 colSpan={6}
-                                className="p-6 text-center text-neutral-500 font-bold"
+                                className="p-6 text-center text-neutral-500 dark:text-neutral-400 font-bold bg-white dark:bg-neutral-900"
                               >
-                                No entries logged for this room yet. Click on any calendar day to add one!
+                                No entries logged for this room yet. Click on any calendar day to add one.
                               </td>
                             </tr>
                           ) : (
@@ -286,33 +275,33 @@ export default function App() {
                                 return (
                                   <tr
                                     key={entry.id}
-                                    className={`border-b border-black ${
-                                      idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50'
+                                    className={`border-b border-black dark:border-neutral-700 ${
+                                      idx % 2 === 0 ? 'bg-white dark:bg-neutral-900' : 'bg-neutral-50 dark:bg-neutral-800'
                                     }`}
                                   >
-                                    <td className="p-3 border-r-2 border-black font-bold">
+                                    <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">
                                       {entry.date}
                                     </td>
-                                    <td className="p-3 border-r-2 border-black font-bold text-black">
+                                    <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">
                                       {formatKwh(entry.unitsUsed)}
                                     </td>
-                                    <td className="p-3 border-r-2 border-black text-neutral-700">
+                                    <td className="p-3 border-r-2 border-black dark:border-neutral-700 text-neutral-700 dark:text-neutral-300">
                                       {formatCurrency(cost)}
                                     </td>
-                                    <td className="p-3 border-r-2 border-black font-bold text-[#00b894]">
+                                    <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-[#00b894]">
                                       {formatCurrency(entry.amountPaid)}
                                     </td>
-                                    <td className="p-3 border-r-2 border-black text-neutral-600 truncate max-w-[200px]">
-                                      {entry.note || '—'}
+                                    <td className="p-3 border-r-2 border-black dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 truncate max-w-[200px]">
+                                      {entry.note || '-'}
                                     </td>
                                     <td className="p-2 text-center">
                                       <button
                                         onClick={() =>
                                           handleOpenDayModalForDate(entry.date, entry)
                                         }
-                                        className="bg-white hover:bg-neutral-100 border border-black p-1 px-2 rounded font-bold text-[10px] cursor-pointer"
+                                        className="bg-white dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700 text-black dark:text-neutral-100 border border-black dark:border-neutral-600 p-1 px-2 rounded font-bold text-[10px] cursor-pointer"
                                       >
-                                        Edit ✏
+                                        Edit
                                       </button>
                                     </td>
                                   </tr>
@@ -328,7 +317,6 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 2: FLOORS VIEW (200 Rooms per floor) */}
           {activeTab === 'floors' && (
             <div>
               {selectedFloorNumber ? (
@@ -349,11 +337,11 @@ export default function App() {
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h2 className="text-3xl font-serif font-black text-black">
+                      <h2 className="text-3xl font-serif font-black text-black dark:text-neutral-100">
                         Select a Floor to View its 200 Rooms
                       </h2>
-                      <p className="font-mono text-xs text-neutral-600">
-                        Total 8 Floors • 1,600 Total Units in Voltra Tower
+                      <p className="font-mono text-xs text-neutral-600 dark:text-neutral-400">
+                        Total 8 Floors - 1,600 Total Units in Voltra Tower
                       </p>
                     </div>
                   </div>
@@ -372,7 +360,6 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 3: ROOMS VIEW */}
           {activeTab === 'rooms' && (
             <div className="space-y-6">
               <TrainerStyleInfoCard
@@ -405,72 +392,69 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 4: PAYMENTS LEDGER */}
           {activeTab === 'payments' && (
-            <div className="bg-white border-3 border-black rounded-2xl p-6 space-y-6">
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pb-4 border-b-2 border-black">
+            <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-6 space-y-6">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pb-4 border-b-2 border-black dark:border-neutral-700">
                 <div>
-                  <h2 className="text-2xl sm:text-3xl font-serif font-black text-black">
-                    Building Financial & Payment Ledger
+                  <h2 className="text-2xl sm:text-3xl font-serif font-black text-black dark:text-neutral-100">
+                    Building Financial and Payment Ledger
                   </h2>
-                  <p className="font-mono text-xs text-neutral-600">
+                  <p className="font-mono text-xs text-neutral-600 dark:text-neutral-400">
                     Collection status for {calMonth}/{calYear} across all 8 floors
                   </p>
                 </div>
 
-                <div className="bg-[#a8e6cf] border-2 border-black p-3 rounded-xl font-mono text-xs font-bold">
-                  Collected: {formatCurrency(buildingSummary.totalCollectedThisMonth)} • Outstanding:{' '}
-                  <span className="text-[#ff3838]">
+                <div className="bg-[#a8e6cf] border-2 border-black p-3 rounded-xl font-mono text-xs font-bold text-black">
+                  Collected: {formatCurrency(buildingSummary.totalCollectedThisMonth)} | Outstanding:{' '}
+                  <span className="text-[#c0392b]">
                     {formatCurrency(buildingSummary.totalOutstandingThisMonth)}
                   </span>
                 </div>
               </div>
 
-              {/* Status summary tiles */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 font-mono text-xs">
                 <div className="bg-[#2ed573] border-2 border-black rounded-xl p-4">
-                  <div className="font-bold uppercase text-[10px]">Paid in Full</div>
-                  <div className="text-3xl font-black">{buildingSummary.paidRoomsCount} Rooms</div>
+                  <div className="font-bold uppercase text-[10px] text-black">Paid in Full</div>
+                  <div className="text-3xl font-black text-black">{buildingSummary.paidRoomsCount} Rooms</div>
                 </div>
 
                 <div className="bg-[#feca57] border-2 border-black rounded-xl p-4">
-                  <div className="font-bold uppercase text-[10px]">Partial Payment</div>
-                  <div className="text-3xl font-black">{buildingSummary.partialRoomsCount} Rooms</div>
+                  <div className="font-bold uppercase text-[10px] text-black">Partial Payment</div>
+                  <div className="text-3xl font-black text-black">{buildingSummary.partialRoomsCount} Rooms</div>
                 </div>
 
                 <div className="bg-[#ff6b6b] border-2 border-black rounded-xl p-4">
-                  <div className="font-bold uppercase text-[10px]">Overdue Rooms</div>
-                  <div className="text-3xl font-black">{buildingSummary.overdueRoomsCount} Rooms</div>
+                  <div className="font-bold uppercase text-[10px] text-black">Overdue Rooms</div>
+                  <div className="text-3xl font-black text-black">{buildingSummary.overdueRoomsCount} Rooms</div>
                 </div>
               </div>
 
-              {/* All rooms collection table summary */}
-              <div className="border-2 border-black rounded-xl overflow-x-auto">
+              <div className="border-2 border-black dark:border-neutral-200 rounded-xl overflow-x-auto">
                 <table className="w-full text-left font-mono text-xs border-collapse">
                   <thead>
-                    <tr className="bg-[#feca57] border-b-2 border-black uppercase font-bold">
+                    <tr className="bg-[#feca57] border-b-2 border-black uppercase font-bold text-black">
                       <th className="p-3 border-r-2 border-black">Floor</th>
                       <th className="p-3 border-r-2 border-black">Power Used (kWh)</th>
-                      <th className="p-3 border-r-2 border-black">Total Collected ($)</th>
-                      <th className="p-3 border-r-2 border-black">Outstanding ($)</th>
-                      <th className="p-3 border-r-2 border-black">Rate ($/kWh)</th>
+                      <th className="p-3 border-r-2 border-black">Total Collected</th>
+                      <th className="p-3 border-r-2 border-black">Outstanding</th>
+                      <th className="p-3 border-r-2 border-black">Rate (RWF/kWh)</th>
                       <th className="p-3 text-center">Floor Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {buildingSummary.perFloorSummaries.map((f) => (
-                      <tr key={f.floorNumber} className="border-b border-black hover:bg-neutral-50">
-                        <td className="p-3 border-r-2 border-black font-bold">Floor {f.floorNumber}</td>
-                        <td className="p-3 border-r-2 border-black">{formatKwh(f.totalUnits)}</td>
-                        <td className="p-3 border-r-2 border-black font-bold text-[#2ed573]">
+                      <tr key={f.floorNumber} className="border-b border-black dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 bg-white dark:bg-neutral-900">
+                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">Floor {f.floorNumber}</td>
+                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 text-black dark:text-neutral-100">{formatKwh(f.totalUnits)}</td>
+                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-[#1a8f5f] dark:text-[#4ade80]">
                           {formatCurrency(f.totalCollected)}
                         </td>
-                        <td className="p-3 border-r-2 border-black font-bold text-[#ff3838]">
+                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-[#c0392b] dark:text-[#f87171]">
                           {formatCurrency(f.totalOutstanding)}
                         </td>
-                        <td className="p-3 border-r-2 border-black">${f.ratePerUnit.toFixed(2)}</td>
+                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 text-black dark:text-neutral-100">{formatCurrency(f.ratePerUnit)}</td>
                         <td className="p-3 text-center">
-                          <span className="bg-black text-white px-2 py-1 rounded text-[10px] font-bold">
+                          <span className="bg-black dark:bg-neutral-100 text-white dark:text-black px-2 py-1 rounded text-[10px] font-bold">
                             {f.paidCount}/{f.occupiedRooms} Paid
                           </span>
                         </td>
@@ -482,7 +466,6 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 5: CALENDAR VIEW */}
           {activeTab === 'calendar' && (
             <div className="space-y-6">
               <CalendarGrid
@@ -501,24 +484,22 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 6: SETTINGS VIEW */}
           {activeTab === 'settings' && (
-            <div className="bg-white border-3 border-black rounded-2xl p-6 space-y-6 font-mono text-xs">
-              <div className="pb-4 border-b-2 border-black">
-                <h2 className="text-3xl font-serif font-black text-black">
-                  System Settings & Controls
+            <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-6 space-y-6 font-mono text-xs">
+              <div className="pb-4 border-b-2 border-black dark:border-neutral-700">
+                <h2 className="text-3xl font-serif font-black text-black dark:text-neutral-100">
+                  System Settings and Controls
                 </h2>
-                <p className="text-neutral-600">
-                  Voltra Tower Electricity Rate & Seed Configuration
+                <p className="text-neutral-600 dark:text-neutral-400">
+                  Voltra Tower Electricity Rate and Seed Configuration
                 </p>
               </div>
 
-              {/* Rate Config Section */}
-              <div className="bg-[#a8e6cf] border-2 border-black rounded-xl p-5 space-y-3">
-                <h3 className="font-bold text-sm text-black uppercase">
-                  ⚡ Electricity Tariff Rate Settings
+              <div className="bg-[#a8e6cf] border-2 border-black rounded-xl p-5 space-y-3 text-black">
+                <h3 className="font-bold text-sm uppercase">
+                  Electricity Tariff Rate Settings
                 </h3>
-                <p>Current Building Default Rate: ${buildingSummary.defaultRatePerUnit.toFixed(2)} / kWh</p>
+                <p>Current Building Default Rate: {formatCurrency(buildingSummary.defaultRatePerUnit)} / kWh</p>
                 <button
                   onClick={() => setIsRateModalOpen(true)}
                   className="bg-black text-white hover:bg-neutral-800 font-bold px-4 py-2 rounded-lg border border-black cursor-pointer"
@@ -527,24 +508,37 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Seed Data Reset */}
-              <div className="bg-[#ff80bf] border-2 border-black rounded-xl p-5 space-y-3">
-                <h3 className="font-bold text-sm text-black uppercase">
-                  🔄 Database Reset & Seeding
+              <div className="bg-[#ff80bf] border-2 border-black rounded-xl p-5 space-y-3 text-black">
+                <h3 className="font-bold text-sm uppercase">
+                  Building Reset
                 </h3>
                 <p>
-                  Generates all 8 floors x 200 rooms (1,600 total rooms) with demo occupants and past daily usage logs.
+                  Resets to an empty 8-floor, 200-room-per-floor building shell with no tenants
+                  and no usage history. Use this only when starting the building over from scratch.
                 </p>
                 <button
                   onClick={() => {
-                    if (confirm('Reset to seed dataset? All current custom edits will be refreshed.')) {
+                    if (confirm('Reset building? All current tenants and logged entries will be cleared.')) {
                       store.resetToSeedData();
-                      alert('Seed dataset restored successfully!');
+                      alert('Building reset to an empty 1,600-room shell.');
                     }
                   }}
                   className="bg-black text-white hover:bg-neutral-800 font-bold px-4 py-2 rounded-lg border border-black cursor-pointer"
                 >
-                  Reset Seed Building Data
+                  Reset Building Data
+                </button>
+              </div>
+
+              <div className="bg-neutral-200 dark:bg-neutral-800 border-2 border-black dark:border-neutral-200 rounded-xl p-5 space-y-3 text-black dark:text-neutral-100">
+                <h3 className="font-bold text-sm uppercase">
+                  Display
+                </h3>
+                <p>Current mode: {isDark ? 'Dark' : 'Light'}</p>
+                <button
+                  onClick={toggleDarkMode}
+                  className="bg-black dark:bg-neutral-100 text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-white font-bold px-4 py-2 rounded-lg border border-black dark:border-neutral-200 cursor-pointer"
+                >
+                  Switch to {isDark ? 'Light' : 'Dark'} Mode
                 </button>
               </div>
             </div>
@@ -552,7 +546,6 @@ export default function App() {
         </main>
       </div>
 
-      {/* MODALS */}
       <DayEntryModal
         isOpen={isDayEntryModalOpen}
         onClose={() => setIsDayEntryModalOpen(false)}

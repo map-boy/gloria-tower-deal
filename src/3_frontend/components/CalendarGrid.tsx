@@ -42,7 +42,6 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
 
   const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  // Calculate total units & paid for this month view
   const monthEntries = entries.filter((e) =>
     e.date.startsWith(`${year}-${month.toString().padStart(2, '0')}`)
   );
@@ -51,30 +50,28 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
 
   return (
     <div className="bg-white border-3 border-black rounded-2xl p-4 sm:p-6 shadow-none">
-      {/* Calendar Header with ◄ ► */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">
           <div className="bg-black text-white p-2 rounded-lg font-mono font-bold text-lg">
-            📅
+            &#9638;
           </div>
           <div>
             <h3 className="text-xl sm:text-2xl font-serif font-black text-black">
               {getMonthName(month)} {year}
             </h3>
             <p className="font-mono text-xs text-neutral-600">
-              Rate: ${appliedRate.toFixed(2)}/kWh • {monthEntries.length} entries logged
+              Rate: {formatCurrency(appliedRate)}/kWh | {monthEntries.length} entries logged
             </p>
           </div>
         </div>
 
-        {/* Quick Month Navigation */}
         <div className="flex items-center gap-2">
           <button
             onClick={handlePrevMonth}
             className="bg-white hover:bg-neutral-100 text-black border-2 border-black rounded-lg p-2 px-3 font-mono font-black text-sm cursor-pointer transition-transform active:scale-95"
             title="Previous Month"
           >
-            ◄ Prev
+            &lt; Prev
           </button>
           <button
             onClick={() => {
@@ -90,12 +87,11 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
             className="bg-white hover:bg-neutral-100 text-black border-2 border-black rounded-lg p-2 px-3 font-mono font-black text-sm cursor-pointer transition-transform active:scale-95"
             title="Next Month"
           >
-            Next ►
+            Next &gt;
           </button>
         </div>
       </div>
 
-      {/* Days of Week Header */}
       <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-2 text-center font-mono font-bold text-xs text-black uppercase">
         {daysOfWeek.map((day) => (
           <div
@@ -107,7 +103,6 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
         ))}
       </div>
 
-      {/* Grid of Days */}
       <div className="grid grid-cols-7 gap-1 sm:gap-2">
         {cells.map((cell, idx) => {
           const entry = entryMap.get(cell.dateStr);
@@ -129,7 +124,6 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                   : 'bg-white border-neutral-300 hover:border-black hover:bg-neutral-50'
               }`}
             >
-              {/* Day Number Header */}
               <div className="flex items-center justify-between">
                 <span
                   className={`font-mono text-xs sm:text-sm font-black ${
@@ -148,7 +142,6 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                 )}
               </div>
 
-              {/* Saved Entry Details inside cell */}
               {hasEntry && entry ? (
                 <div className="mt-1 font-mono text-[10px] sm:text-xs leading-tight bg-black text-white p-1 rounded-md border border-black">
                   <div className="font-bold text-[#7bed9f]">
@@ -168,7 +161,6 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
         })}
       </div>
 
-      {/* Legend & Month Summary Footer */}
       <div className="mt-6 pt-4 border-t-2 border-black flex flex-wrap items-center justify-between gap-4 font-mono text-xs">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5">
@@ -182,7 +174,7 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
         </div>
 
         <div className="bg-[#a8e6cf] border-2 border-black p-2 px-3 rounded-lg font-bold text-black">
-          Month Totals: {formatKwh(totalUnits)} • Paid: {formatCurrency(totalPaid)}
+          Month Totals: {formatKwh(totalUnits)} | Paid: {formatCurrency(totalPaid)}
         </div>
       </div>
     </div>

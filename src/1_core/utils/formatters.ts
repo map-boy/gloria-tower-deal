@@ -3,9 +3,9 @@ import { BalanceStatus } from '../domain/types';
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    currency: 'RWF',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   }).format(amount);
 }
 
@@ -40,19 +40,19 @@ export function getStatusBadgeStyle(status: BalanceStatus): {
   switch (status) {
     case 'paid':
       return {
-        bg: 'bg-[#2ed573]', // Mint green
+        bg: 'bg-[#2ed573]',
         text: 'text-black',
         border: 'border-black',
       };
     case 'partial':
       return {
-        bg: 'bg-[#feca57]', // Mustard yellow
+        bg: 'bg-[#feca57]',
         text: 'text-black',
         border: 'border-black',
       };
     case 'overdue':
       return {
-        bg: 'bg-[#ff6b6b]', // Soft red/pink
+        bg: 'bg-[#ff6b6b]',
         text: 'text-black',
         border: 'border-black',
       };
