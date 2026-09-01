@@ -81,7 +81,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               resetData();
             }
           }}
-          className="bg-[#ff80bf] hover:bg-[#ff66b2] text-black border-2 border-black p-2 px-3 rounded-lg font-mono font-bold text-xs cursor-pointer whitespace-nowrap"
+          className="bg-black hover:bg-neutral-800 text-white border-2 border-black p-2 px-3 rounded-lg font-mono font-bold text-xs cursor-pointer whitespace-nowrap"
           title="Reset Seed Data"
         >
           &#8635; Reset Data
@@ -95,7 +95,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           &#9673;
         </button>
 
-        <div className="w-10 h-10 bg-[#feca57] border-2 border-black rounded-lg flex items-center justify-center font-mono font-bold text-black overflow-hidden shrink-0">
+        <div className="w-10 h-10 bg-neutral-300 border-2 border-black rounded-lg flex items-center justify-center font-mono font-bold text-black overflow-hidden shrink-0">
           <span className="text-xs">VT</span>
         </div>
       </div>

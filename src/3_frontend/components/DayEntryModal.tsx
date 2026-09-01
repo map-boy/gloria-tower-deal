@@ -65,7 +65,7 @@ export const DayEntryModal: React.FC<DayEntryModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-none">
-      <div className="bg-[#feca57] border-3 border-black rounded-2xl w-full max-w-md p-6 shadow-none text-black relative">
+      <div className="bg-white border-3 border-black rounded-2xl w-full max-w-md p-6 shadow-none text-black relative">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b-2 border-black mb-4">
           <div className="flex items-center gap-2">
@@ -172,7 +172,7 @@ export const DayEntryModal: React.FC<DayEntryModalProps> = ({
                     onClose();
                   }
                 }}
-                className="w-full bg-[#ff6b6b] hover:bg-[#ff5252] text-black font-mono font-bold text-xs py-2.5 rounded-xl border-2 border-black cursor-pointer"
+                className="w-full bg-white hover:bg-neutral-100 text-black font-mono font-bold text-xs py-2.5 rounded-xl border-2 border-black cursor-pointer"
               >
                 Delete Entry
               </button>
@@ -183,3 +183,4 @@ export const DayEntryModal: React.FC<DayEntryModalProps> = ({
     </div>
   );
 };
+

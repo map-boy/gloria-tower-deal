@@ -26,7 +26,7 @@ export const SelectRoomModal: React.FC<SelectRoomModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
-      <div className="bg-[#a8e6cf] border-3 border-black rounded-2xl w-full max-w-lg p-6 shadow-none text-black relative flex flex-col max-h-[85vh]">
+      <div className="bg-white border-3 border-black rounded-2xl w-full max-w-lg p-6 shadow-none text-black relative flex flex-col max-h-[85vh]">
         <div className="flex items-center justify-between pb-3 border-b-2 border-black mb-4 shrink-0">
           <div className="flex items-center gap-2">
             <span className="bg-black text-white p-1.5 rounded font-mono font-bold text-sm">
@@ -79,7 +79,7 @@ export const SelectRoomModal: React.FC<SelectRoomModalProps> = ({
                 onSelectRoom(room.id);
                 onClose();
               }}
-              className="bg-white hover:bg-[#feca57] border-2 border-black rounded-xl p-2.5 text-center font-bold text-black cursor-pointer transition-colors"
+              className="bg-white hover:bg-neutral-200 border-2 border-black rounded-xl p-2.5 text-center font-bold text-black cursor-pointer transition-colors"
             >
               <div>{room.roomNumber}</div>
               <div className="text-[9px] text-neutral-500 font-normal">
@@ -92,3 +92,4 @@ export const SelectRoomModal: React.FC<SelectRoomModalProps> = ({
     </div>
   );
 };
+

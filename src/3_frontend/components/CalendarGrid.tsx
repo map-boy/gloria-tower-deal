@@ -78,7 +78,7 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
               const now = new Date();
               onMonthChange(now.getFullYear(), now.getMonth() + 1);
             }}
-            className="bg-[#feca57] hover:bg-[#f3b528] text-black border-2 border-black rounded-lg p-2 px-3 font-mono font-bold text-xs cursor-pointer"
+            className="bg-neutral-400 hover:bg-neutral-500 text-black border-2 border-black rounded-lg p-2 px-3 font-mono font-bold text-xs cursor-pointer"
           >
             Today
           </button>
@@ -96,7 +96,7 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
         {daysOfWeek.map((day) => (
           <div
             key={day}
-            className="bg-[#a8e6cf] border-2 border-black p-2 rounded-lg"
+            className="bg-white border-2 border-black p-2 rounded-lg"
           >
             {day}
           </div>
@@ -118,7 +118,7 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                 !cell.isCurrentMonth
                   ? 'bg-neutral-100/60 border-neutral-300 opacity-50'
                   : hasEntry
-                  ? 'bg-[#feca57] border-black hover:bg-[#f3b528] shadow-none'
+                  ? 'bg-neutral-400 border-black hover:bg-neutral-500 shadow-none'
                   : isToday
                   ? 'bg-white border-black ring-2 ring-black font-bold'
                   : 'bg-white border-neutral-300 hover:border-black hover:bg-neutral-50'
@@ -144,7 +144,7 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
 
               {hasEntry && entry ? (
                 <div className="mt-1 font-mono text-[10px] sm:text-xs leading-tight bg-black text-white p-1 rounded-md border border-black">
-                  <div className="font-bold text-[#7bed9f]">
+                  <div className="font-bold text-neutral-300">
                     {formatKwh(entry.unitsUsed)}
                   </div>
                   <div className="text-white">
@@ -164,7 +164,7 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
       <div className="mt-6 pt-4 border-t-2 border-black flex flex-wrap items-center justify-between gap-4 font-mono text-xs">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5">
-            <span className="w-3.5 h-3.5 bg-[#feca57] border border-black rounded" />
+            <span className="w-3.5 h-3.5 bg-neutral-400 border border-black rounded" />
             <span>Logged Day</span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -173,7 +173,7 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
           </div>
         </div>
 
-        <div className="bg-[#a8e6cf] border-2 border-black p-2 px-3 rounded-lg font-bold text-black">
+        <div className="bg-white border-2 border-black p-2 px-3 rounded-lg font-bold text-black">
           Month Totals: {formatKwh(totalUnits)} | Paid: {formatCurrency(totalPaid)}
         </div>
       </div>

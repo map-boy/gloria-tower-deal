@@ -1,12 +1,13 @@
+import { doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot, collection } from 'firebase/firestore';
+import { db } from './firebaseConfig';
 import { Room, Tenant, UsageEntry, RateConfig, BuildingSummary, MonthlyRoomStats } from '../../1_core/domain/types';
 import { generateInitialBuildingData } from '../../4_ops/scripts/seedBuilding';
-import { calculateBuildingSummary, calculateRoomMonthlyStats, getEffectiveRate } from '../../1_core/algorithms/balance';
+import { calculateBuildingSummary, calculateRoomMonthlyStats } from '../../1_core/algorithms/balance';
 import { getCurrentYearMonth } from '../../1_core/utils/dateUtils';
 
-const STORAGE_KEY_ROOMS = 'voltra_tower_rooms_v1';
-const STORAGE_KEY_TENANTS = 'voltra_tower_tenants_v1';
-const STORAGE_KEY_ENTRIES = 'voltra_tower_entries_v1';
-const STORAGE_KEY_RATES = 'voltra_tower_rates_v1';
+const buildingDocRef = doc(db, 'voltraTower', 'building');
+const tenantsDocRef = doc(db, 'voltraTower', 'tenants');
+const usageEntriesCollectionRef = collection(db, 'usageEntries');
 
 export class StorageService {
   private rooms: Room[] = [];
@@ -16,50 +17,51 @@ export class StorageService {
   private listeners: Array<() => void> = [];
 
   constructor() {
-    this.loadFromStorage();
+    this.initFirestore();
   }
 
-  private loadFromStorage() {
+  private async initFirestore() {
     try {
-      const storedRooms = localStorage.getItem(STORAGE_KEY_ROOMS);
-      const storedTenants = localStorage.getItem(STORAGE_KEY_TENANTS);
-      const storedEntries = localStorage.getItem(STORAGE_KEY_ENTRIES);
-      const storedRates = localStorage.getItem(STORAGE_KEY_RATES);
-
-      if (storedRooms && storedTenants && storedEntries && storedRates) {
-        this.rooms = JSON.parse(storedRooms);
-        this.tenants = JSON.parse(storedTenants);
-        this.usageEntries = JSON.parse(storedEntries);
-        this.rateConfigs = JSON.parse(storedRates);
-        return;
+      const buildingSnap = await getDoc(buildingDocRef);
+      if (!buildingSnap.exists()) {
+        const dataset = generateInitialBuildingData();
+        await setDoc(buildingDocRef, { rooms: dataset.rooms, rateConfigs: dataset.rateConfigs });
+        await setDoc(tenantsDocRef, { list: dataset.tenants });
       }
     } catch (e) {
-      console.error('Failed to load from localStorage, initializing fresh data', e);
+      console.error('Failed to initialize Firestore building data', e);
     }
 
-    // Initialize with seed data
-    this.resetToSeedData();
+    onSnapshot(buildingDocRef, (snap) => {
+      const data = snap.data();
+      if (data) {
+        this.rooms = data.rooms || [];
+        this.rateConfigs = data.rateConfigs || [];
+        this.notifyListeners();
+      }
+    });
+
+    onSnapshot(tenantsDocRef, (snap) => {
+      const data = snap.data();
+      if (data) {
+        this.tenants = data.list || [];
+        this.notifyListeners();
+      }
+    });
+
+    onSnapshot(usageEntriesCollectionRef, (snap) => {
+      this.usageEntries = snap.docs.map((d) => d.data() as UsageEntry);
+      this.notifyListeners();
+    });
   }
 
-  public resetToSeedData() {
+  public async resetToSeedData() {
     const dataset = generateInitialBuildingData();
-    this.rooms = dataset.rooms;
-    this.tenants = dataset.tenants;
-    this.usageEntries = dataset.usageEntries;
-    this.rateConfigs = dataset.rateConfigs;
-    this.saveToStorage();
-    this.notifyListeners();
-  }
+    await setDoc(buildingDocRef, { rooms: dataset.rooms, rateConfigs: dataset.rateConfigs });
+    await setDoc(tenantsDocRef, { list: dataset.tenants });
 
-  private saveToStorage() {
-    try {
-      localStorage.setItem(STORAGE_KEY_ROOMS, JSON.stringify(this.rooms));
-      localStorage.setItem(STORAGE_KEY_TENANTS, JSON.stringify(this.tenants));
-      localStorage.setItem(STORAGE_KEY_ENTRIES, JSON.stringify(this.usageEntries));
-      localStorage.setItem(STORAGE_KEY_RATES, JSON.stringify(this.rateConfigs));
-    } catch (e) {
-      console.error('Failed to save to localStorage', e);
-    }
+    const existingEntries = await getDocs(usageEntriesCollectionRef);
+    await Promise.all(existingEntries.docs.map((d) => deleteDoc(d.ref)));
   }
 
   public subscribe(listener: () => void): () => void {
@@ -73,7 +75,7 @@ export class StorageService {
     this.listeners.forEach((listener) => listener());
   }
 
-  // --- Read Operations ---
+  // --- Read Operations (from local cache, kept in sync via onSnapshot) ---
   public getRooms(): Room[] {
     return [...this.rooms];
   }
@@ -134,71 +136,55 @@ export class StorageService {
     );
   }
 
-  // --- Write Operations ---
-  public saveUsageEntry(entry: Omit<UsageEntry, 'id' | 'createdAt'> & { id?: string }): UsageEntry {
+  // --- Write Operations (now async Firestore writes) ---
+  public async saveUsageEntry(
+    entry: Omit<UsageEntry, 'id' | 'createdAt'> & { id?: string }
+  ): Promise<UsageEntry> {
     let savedEntry: UsageEntry;
 
     if (entry.id) {
-      // Update existing
-      const index = this.usageEntries.findIndex((e) => e.id === entry.id);
-      if (index !== -1) {
-        savedEntry = {
-          ...this.usageEntries[index],
-          ...entry,
-          id: entry.id,
-          updatedAt: new Date().toISOString(),
-        };
-        this.usageEntries[index] = savedEntry;
-      } else {
-        savedEntry = {
-          ...entry,
-          id: entry.id,
-          createdAt: new Date().toISOString(),
-        };
-        this.usageEntries.push(savedEntry);
-      }
+      const existing = this.usageEntries.find((e) => e.id === entry.id);
+      savedEntry = {
+        ...(existing as UsageEntry),
+        ...entry,
+        id: entry.id,
+        createdAt: existing?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await setDoc(doc(db, 'usageEntries', entry.id), savedEntry, { merge: true });
     } else {
-      // Create new
       const newId = `entry-${entry.roomId}-${entry.date}`;
-      // Remove any existing entry for that same date and room
-      this.usageEntries = this.usageEntries.filter(
-        (e) => !(e.roomId === entry.roomId && e.date === entry.date)
-      );
-
       savedEntry = {
         ...entry,
         id: newId,
         createdAt: new Date().toISOString(),
       };
-      this.usageEntries.push(savedEntry);
+      await setDoc(doc(db, 'usageEntries', newId), savedEntry);
     }
 
-    this.saveToStorage();
-    this.notifyListeners();
     return savedEntry;
   }
 
-  public deleteUsageEntry(entryId: string) {
-    this.usageEntries = this.usageEntries.filter((e) => e.id !== entryId);
-    this.saveToStorage();
-    this.notifyListeners();
+  public async deleteUsageEntry(entryId: string) {
+    await deleteDoc(doc(db, 'usageEntries', entryId));
   }
 
-  public setRateConfig(config: Omit<RateConfig, 'id'> & { id?: string }) {
+  public async setRateConfig(config: Omit<RateConfig, 'id'> & { id?: string }) {
+    let newRateConfigs = [...this.rateConfigs];
+
     if (config.scope === 'building') {
-      // Remove previous building rate
-      this.rateConfigs = this.rateConfigs.filter((r) => r.scope !== 'building');
-      this.rateConfigs.push({
+      newRateConfigs = newRateConfigs.filter((r) => r.scope !== 'building');
+      newRateConfigs.push({
         id: 'rate-building-default',
         scope: 'building',
         ratePerUnit: config.ratePerUnit,
         effectiveFrom: config.effectiveFrom,
       });
     } else if (config.scope === 'floor' && config.floorNumber !== undefined) {
-      this.rateConfigs = this.rateConfigs.filter(
+      newRateConfigs = newRateConfigs.filter(
         (r) => !(r.scope === 'floor' && r.floorNumber === config.floorNumber)
       );
-      this.rateConfigs.push({
+      newRateConfigs.push({
         id: `rate-floor-${config.floorNumber}`,
         scope: 'floor',
         floorNumber: config.floorNumber,
@@ -206,11 +192,14 @@ export class StorageService {
         effectiveFrom: config.effectiveFrom,
       });
     }
-    this.saveToStorage();
-    this.notifyListeners();
+
+    await setDoc(buildingDocRef, { rooms: this.rooms, rateConfigs: newRateConfigs });
   }
 
-  public assignTenantToRoom(roomId: string, tenantData: { name: string; phone: string; moveInDate: string }): Tenant {
+  public async assignTenantToRoom(
+    roomId: string,
+    tenantData: { name: string; phone: string; moveInDate: string }
+  ): Promise<Tenant> {
     const room = this.getRoomById(roomId);
     if (!room) throw new Error('Room not found');
 
@@ -226,11 +215,12 @@ export class StorageService {
       role: 'tenant',
     };
 
-    this.tenants.push(newTenant);
-    room.tenantId = tenantId;
+    const newTenants = [...this.tenants, newTenant];
+    const newRooms = this.rooms.map((r) => (r.id === roomId ? { ...r, tenantId } : r));
 
-    this.saveToStorage();
-    this.notifyListeners();
+    await setDoc(tenantsDocRef, { list: newTenants });
+    await setDoc(buildingDocRef, { rooms: newRooms, rateConfigs: this.rateConfigs });
+
     return newTenant;
   }
 }

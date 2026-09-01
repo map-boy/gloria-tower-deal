@@ -135,7 +135,7 @@ export const RoomGrid: React.FC<RoomGridProps> = ({
       <div className="overflow-x-auto border-2 border-black rounded-xl mb-4">
         <table className="w-full text-left font-mono text-xs border-collapse">
           <thead>
-            <tr className="bg-[#a8e6cf] border-b-2 border-black text-black font-bold uppercase">
+            <tr className="bg-neutral-200 border-b-2 border-black text-black font-bold uppercase">
               <th className="p-3 border-r-2 border-black">Room #</th>
               <th className="p-3 border-r-2 border-black">Tenant / Occupant</th>
               <th className="p-3 border-r-2 border-black">Monthly Usage</th>
@@ -157,7 +157,7 @@ export const RoomGrid: React.FC<RoomGridProps> = ({
                 return (
                   <tr
                     key={room.id}
-                    className={`border-b border-black hover:bg-[#feca57]/20 transition-colors ${
+                    className={`border-b border-black hover:bg-neutral-100 transition-colors ${
                       index % 2 === 0 ? 'bg-white' : 'bg-neutral-50'
                     }`}
                   >
@@ -245,3 +245,4 @@ export const RoomGrid: React.FC<RoomGridProps> = ({
     </div>
   );
 };
+

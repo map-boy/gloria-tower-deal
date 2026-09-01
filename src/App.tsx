@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useVoltraStore, useAuthRole } from './3_frontend/hooks/useVoltraStore';
 import { useDarkMode } from './3_frontend/hooks/useDarkMode';
 import { Sidebar, ActiveTab } from './3_frontend/components/Sidebar';
@@ -15,10 +15,23 @@ import { SelectRoomModal } from './3_frontend/components/SelectRoomModal';
 import { getCurrentYearMonth } from './1_core/utils/dateUtils';
 import { UsageEntry } from './1_core/domain/types';
 import { formatCurrency, formatKwh, getStatusBadgeStyle, getStatusLabel } from './1_core/utils/formatters';
+import { registerForNotifications, listenForForegroundMessages } from './2_backend/services/notificationService';
+import { signInWithGoogle, signOutUser, subscribeToAuthState, verifyAdminPassword } from './2_backend/services/authService';
+import type { User } from 'firebase/auth';
 
 export default function App() {
   const store = useVoltraStore();
   const auth = useAuthRole();
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthState((user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+    });
+    return unsubscribe;
+  }, []);
   const { isDark, toggleDarkMode } = useDarkMode();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
@@ -39,12 +52,64 @@ export default function App() {
 
   const [searchQuery, setSearchQuery] = useState('');
 
+  const [toast, setToast] = useState<{ title: string; body: string } | null>(null);
+
   const effectiveRoomId =
     auth.role === 'admin'
       ? selectedRoomId || 'room-3-14'
       : auth.activeRoomId;
 
+  useEffect(() => {
+    registerForNotifications(auth.role, auth.role === 'tenant' ? effectiveRoomId : undefined);
+  }, [auth.role, effectiveRoomId]);
+
+  useEffect(() => {
+    listenForForegroundMessages((title, body) => {
+      setToast({ title, body });
+      setTimeout(() => setToast(null), 6000);
+    });
+  }, []);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100">
+        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center">
+          <div className="font-bold text-lg">Checking sign-in...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100 p-4">
+        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center max-w-sm w-full space-y-4">
+          <div className="font-serif font-black text-2xl">Voltra Tower</div>
+          <p className="text-xs text-neutral-600 dark:text-neutral-400">Sign in to continue</p>
+          <button
+            onClick={() => signInWithGoogle()}
+            className="w-full bg-black text-white hover:bg-neutral-800 font-bold text-sm py-3 rounded-xl border-2 border-black transition-transform active:scale-95 cursor-pointer"
+          >
+            Sign in with Google
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const room = store.getRoomById(effectiveRoomId) || store.getRooms()[0];
+
+  if (!room) {
+    return (
+      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100">
+        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center">
+          <div className="font-bold text-lg mb-1">Loading Voltra Tower...</div>
+          <div className="text-xs text-neutral-600 dark:text-neutral-400">Connecting to building data</div>
+        </div>
+      </div>
+    );
+  }
+
   const tenant = store.getTenantForRoom(room.id);
   const roomStats = store.getRoomMonthlyStats(room.id, calYear, calMonth) || {
     roomId: room.id,
@@ -102,8 +167,14 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#8bd3dd] via-[#f3d2c1] to-[#f5b2b2] dark:from-[#0c0f12] dark:via-[#12151a] dark:to-[#171a1f] p-2 sm:p-4 lg:p-6 font-sans text-black flex items-center justify-center">
-      <div className="w-full max-w-[1440px] bg-[#f7f5f0] dark:bg-[#101214] border-3 border-black dark:border-neutral-200 rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row min-h-[90vh] relative">
+    <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 p-2 sm:p-4 lg:p-6 font-sans text-black flex items-center justify-center">
+      {toast && (
+        <div className="fixed top-4 right-4 z-[100] bg-black text-white border-2 border-black rounded-xl p-4 max-w-xs shadow-2xl font-mono">
+          <div className="font-bold text-sm mb-1">{toast.title}</div>
+          <div className="text-xs text-neutral-300">{toast.body}</div>
+        </div>
+      )}
+      <div className="w-full max-w-[1440px] bg-neutral-100 dark:bg-neutral-950 border-3 border-black dark:border-neutral-200 rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row min-h-[90vh] relative">
         <Sidebar
           activeTab={activeTab}
           onTabChange={(tab) => {
@@ -116,6 +187,13 @@ export default function App() {
           role={auth.role}
           onRoleToggle={() => {
             const nextRole = auth.role === 'admin' ? 'tenant' : 'admin';
+            if (nextRole === 'admin') {
+              const pw = window.prompt('Enter admin password:');
+              if (pw === null || !verifyAdminPassword(pw)) {
+                alert('Incorrect admin password.');
+                return;
+              }
+            }
             auth.setRole(nextRole);
             if (nextRole === 'admin') {
               setActiveTab('home');
@@ -128,7 +206,7 @@ export default function App() {
           onCloseMobile={() => setIsMobileSidebarOpen(false)}
         />
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto bg-[#f7f5f0] dark:bg-[#101214]">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto bg-neutral-100 dark:bg-neutral-950">
           <TopBar
             title={
               activeTab === 'home'
@@ -247,7 +325,7 @@ export default function App() {
                     <div className="overflow-x-auto border-2 border-black dark:border-neutral-200 rounded-xl">
                       <table className="w-full text-left font-mono text-xs border-collapse">
                         <thead>
-                          <tr className="bg-[#feca57] border-b-2 border-black text-black font-bold uppercase">
+                          <tr className="bg-neutral-400 border-b-2 border-black text-black font-bold uppercase">
                             <th className="p-3 border-r-2 border-black">Date</th>
                             <th className="p-3 border-r-2 border-black">Power Used</th>
                             <th className="p-3 border-r-2 border-black">Calculated Cost</th>
@@ -288,7 +366,7 @@ export default function App() {
                                     <td className="p-3 border-r-2 border-black dark:border-neutral-700 text-neutral-700 dark:text-neutral-300">
                                       {formatCurrency(cost)}
                                     </td>
-                                    <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-[#00b894]">
+                                    <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">
                                       {formatCurrency(entry.amountPaid)}
                                     </td>
                                     <td className="p-3 border-r-2 border-black dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 truncate max-w-[200px]">
@@ -404,35 +482,35 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="bg-[#a8e6cf] border-2 border-black p-3 rounded-xl font-mono text-xs font-bold text-black">
+                <div className="bg-white border-2 border-black p-3 rounded-xl font-mono text-xs font-bold text-black">
                   Collected: {formatCurrency(buildingSummary.totalCollectedThisMonth)} | Outstanding:{' '}
-                  <span className="text-[#c0392b]">
+                  <span className="text-black dark:text-neutral-100">
                     {formatCurrency(buildingSummary.totalOutstandingThisMonth)}
                   </span>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 font-mono text-xs">
-                <div className="bg-[#2ed573] border-2 border-black rounded-xl p-4">
-                  <div className="font-bold uppercase text-[10px] text-black">Paid in Full</div>
-                  <div className="text-3xl font-black text-black">{buildingSummary.paidRoomsCount} Rooms</div>
+                <div className="bg-neutral-800 border-2 border-black rounded-xl p-4">
+                  <div className="font-bold uppercase text-[10px] text-white">Paid in Full</div>
+                  <div className="text-3xl font-black text-white">{buildingSummary.paidRoomsCount} Rooms</div>
                 </div>
 
-                <div className="bg-[#feca57] border-2 border-black rounded-xl p-4">
+                <div className="bg-neutral-400 border-2 border-black rounded-xl p-4">
                   <div className="font-bold uppercase text-[10px] text-black">Partial Payment</div>
                   <div className="text-3xl font-black text-black">{buildingSummary.partialRoomsCount} Rooms</div>
                 </div>
 
-                <div className="bg-[#ff6b6b] border-2 border-black rounded-xl p-4">
-                  <div className="font-bold uppercase text-[10px] text-black">Overdue Rooms</div>
-                  <div className="text-3xl font-black text-black">{buildingSummary.overdueRoomsCount} Rooms</div>
+                <div className="bg-black border-2 border-black rounded-xl p-4">
+                  <div className="font-bold uppercase text-[10px] text-white">Overdue Rooms</div>
+                  <div className="text-3xl font-black text-white">{buildingSummary.overdueRoomsCount} Rooms</div>
                 </div>
               </div>
 
               <div className="border-2 border-black dark:border-neutral-200 rounded-xl overflow-x-auto">
                 <table className="w-full text-left font-mono text-xs border-collapse">
                   <thead>
-                    <tr className="bg-[#feca57] border-b-2 border-black uppercase font-bold text-black">
+                    <tr className="bg-neutral-400 border-b-2 border-black uppercase font-bold text-black">
                       <th className="p-3 border-r-2 border-black">Floor</th>
                       <th className="p-3 border-r-2 border-black">Power Used (kWh)</th>
                       <th className="p-3 border-r-2 border-black">Total Collected</th>
@@ -446,10 +524,10 @@ export default function App() {
                       <tr key={f.floorNumber} className="border-b border-black dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 bg-white dark:bg-neutral-900">
                         <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">Floor {f.floorNumber}</td>
                         <td className="p-3 border-r-2 border-black dark:border-neutral-700 text-black dark:text-neutral-100">{formatKwh(f.totalUnits)}</td>
-                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-[#1a8f5f] dark:text-[#4ade80]">
+                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">
                           {formatCurrency(f.totalCollected)}
                         </td>
-                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-[#c0392b] dark:text-[#f87171]">
+                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">
                           {formatCurrency(f.totalOutstanding)}
                         </td>
                         <td className="p-3 border-r-2 border-black dark:border-neutral-700 text-black dark:text-neutral-100">{formatCurrency(f.ratePerUnit)}</td>
@@ -495,7 +573,7 @@ export default function App() {
                 </p>
               </div>
 
-              <div className="bg-[#a8e6cf] border-2 border-black rounded-xl p-5 space-y-3 text-black">
+              <div className="bg-white border-2 border-black rounded-xl p-5 space-y-3 text-black">
                 <h3 className="font-bold text-sm uppercase">
                   Electricity Tariff Rate Settings
                 </h3>
@@ -508,7 +586,7 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="bg-[#ff80bf] border-2 border-black rounded-xl p-5 space-y-3 text-black">
+              <div className="bg-neutral-200 dark:bg-neutral-800 border-2 border-black rounded-xl p-5 space-y-3 text-black dark:text-neutral-100">
                 <h3 className="font-bold text-sm uppercase">
                   Building Reset
                 </h3>
@@ -581,3 +659,8 @@ export default function App() {
     </div>
   );
 }
+
+
+
+
+

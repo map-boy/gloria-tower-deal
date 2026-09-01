@@ -40,21 +40,24 @@ export function getStatusBadgeStyle(status: BalanceStatus): {
   switch (status) {
     case 'paid':
       return {
-        bg: 'bg-[#2ed573]',
-        text: 'text-black',
+        bg: 'bg-neutral-800',
+        text: 'text-white',
         border: 'border-black',
+
       };
     case 'partial':
       return {
-        bg: 'bg-[#feca57]',
+        bg: 'bg-neutral-400',
         text: 'text-black',
         border: 'border-black',
+
       };
     case 'overdue':
       return {
-        bg: 'bg-[#ff6b6b]',
-        text: 'text-black',
+        bg: 'bg-black',
+        text: 'text-white',
         border: 'border-black',
+
       };
     case 'no_usage':
       return {

@@ -25,10 +25,10 @@ export const TrainerStyleInfoCard: React.FC<TrainerStyleInfoCardProps> = ({
   const badge = getStatusBadgeStyle(stats.status);
 
   return (
-    <div className="bg-[#feca57] border-3 border-black rounded-2xl p-4 sm:p-6 text-black shadow-none flex flex-col md:flex-row gap-5 items-stretch relative">
+    <div className="bg-white border-3 border-black rounded-2xl p-4 sm:p-6 text-black shadow-none flex flex-col md:flex-row gap-5 items-stretch relative">
       {/* Left Avatar / Room Icon Block */}
       <div className="flex flex-col items-center justify-center bg-white border-2 border-black rounded-xl p-4 min-w-[150px] sm:min-w-[180px] shrink-0 text-center">
-        <div className="w-20 h-20 sm:w-24 sm:h-24 bg-[#a8e6cf] border-2 border-black rounded-full flex items-center justify-center font-mono font-black text-2xl sm:text-3xl text-black mb-2 shadow-none overflow-hidden">
+        <div className="w-20 h-20 sm:w-24 sm:h-24 bg-neutral-200 border-2 border-black rounded-full flex items-center justify-center font-mono font-black text-2xl sm:text-3xl text-black mb-2 shadow-none overflow-hidden">
           {tenant ? (
             <img
               src={`https://api.dicebear.com/7.x/bottts/svg?seed=${tenant.name}`}
@@ -113,7 +113,7 @@ export const TrainerStyleInfoCard: React.FC<TrainerStyleInfoCardProps> = ({
           {role === 'admin' && onOpenTenantProfile && (
             <button
               onClick={onOpenTenantProfile}
-              className="bg-[#a8e6cf] text-black hover:bg-[#8ee2be] font-mono font-bold text-xs sm:text-sm px-4 py-2.5 rounded-lg border-2 border-black transition-transform active:scale-95 cursor-pointer"
+              className="bg-neutral-200 text-black hover:bg-neutral-300 font-mono font-bold text-xs sm:text-sm px-4 py-2.5 rounded-lg border-2 border-black transition-transform active:scale-95 cursor-pointer"
             >
               ⚙ Tenant Config
             </button>
@@ -123,3 +123,4 @@ export const TrainerStyleInfoCard: React.FC<TrainerStyleInfoCardProps> = ({
     </div>
   );
 };
+

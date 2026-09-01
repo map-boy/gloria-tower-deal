@@ -36,7 +36,7 @@ export const RateConfigModal: React.FC<RateConfigModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
-      <div className="bg-[#a8e6cf] border-3 border-black rounded-2xl w-full max-w-md p-6 shadow-none text-black relative">
+      <div className="bg-white border-3 border-black rounded-2xl w-full max-w-md p-6 shadow-none text-black relative">
         <div className="flex items-center justify-between pb-4 border-b-2 border-black mb-4">
           <div className="flex items-center gap-2">
             <span className="bg-black text-white p-1.5 rounded font-mono font-bold text-sm">
@@ -136,3 +136,4 @@ export const RateConfigModal: React.FC<RateConfigModalProps> = ({
     </div>
   );
 };
+

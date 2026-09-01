@@ -45,7 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <aside
-        className={`fixed top-0 bottom-0 left-0 w-64 bg-[#a8e6cf] dark:bg-[#123024] border-r-3 border-black dark:border-neutral-200 z-50 flex flex-col justify-between p-4 transition-transform duration-200 lg:static lg:translate-x-0 ${
+        className={`fixed top-0 bottom-0 left-0 w-64 bg-white dark:bg-neutral-900 border-r-3 border-black dark:border-neutral-200 z-50 flex flex-col justify-between p-4 transition-transform duration-200 lg:static lg:translate-x-0 ${
           isMobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -80,8 +80,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span
                 className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
                   role === 'admin'
-                    ? 'bg-[#feca57] text-black border-black'
-                    : 'bg-[#a8e6cf] text-black border-black'
+                    ? 'bg-neutral-300 text-black border-black'
+                    : 'bg-neutral-100 text-black border-black'
                 }`}
               >
                 {role}

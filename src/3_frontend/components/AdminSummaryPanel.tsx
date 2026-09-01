@@ -13,7 +13,7 @@ export const AdminSummaryPanel: React.FC<AdminSummaryPanelProps> = ({
   onOpenRateConfig,
 }) => {
   return (
-    <div className="bg-[#a8e6cf] border-3 border-black rounded-2xl p-5 sm:p-6 text-black mb-8 shadow-none">
+    <div className="bg-white border-3 border-black rounded-2xl p-5 sm:p-6 text-black mb-8 shadow-none">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b-2 border-black mb-5">
         <div>
@@ -77,35 +77,35 @@ export const AdminSummaryPanel: React.FC<AdminSummaryPanelProps> = ({
             style={{
               width: `${(summary.paidRoomsCount / (summary.occupiedRooms || 1)) * 100}%`,
             }}
-            className="bg-[#2ed573] h-full border-r border-black"
+            className="bg-neutral-800 h-full border-r border-black"
             title={`Paid: ${summary.paidRoomsCount}`}
           />
           <div
             style={{
               width: `${(summary.partialRoomsCount / (summary.occupiedRooms || 1)) * 100}%`,
             }}
-            className="bg-[#feca57] h-full border-r border-black"
+            className="bg-neutral-400 h-full border-r border-black"
             title={`Partial: ${summary.partialRoomsCount}`}
           />
           <div
             style={{
               width: `${(summary.overdueRoomsCount / (summary.occupiedRooms || 1)) * 100}%`,
             }}
-            className="bg-[#ff6b6b] h-full"
+            className="bg-black h-full"
             title={`Overdue: ${summary.overdueRoomsCount}`}
           />
         </div>
         <div className="flex flex-wrap gap-4 mt-2 text-[11px] font-semibold">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 bg-[#2ed573] border border-black rounded-sm" />
+            <span className="w-3 h-3 bg-neutral-800 border border-black rounded-sm" />
             Paid: {summary.paidRoomsCount}
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 bg-[#feca57] border border-black rounded-sm" />
+            <span className="w-3 h-3 bg-neutral-400 border border-black rounded-sm" />
             Partial: {summary.partialRoomsCount}
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 bg-[#ff6b6b] border border-black rounded-sm" />
+            <span className="w-3 h-3 bg-black border border-black rounded-sm" />
             Overdue: {summary.overdueRoomsCount}
           </span>
         </div>
@@ -113,3 +113,4 @@ export const AdminSummaryPanel: React.FC<AdminSummaryPanelProps> = ({
     </div>
   );
 };
+
