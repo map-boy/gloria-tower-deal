@@ -8,3 +8,5 @@ coverage/
 !.env.example
 
 public/firebase-messaging-sw.js
+
+public/firebase-messaging-sw.js
