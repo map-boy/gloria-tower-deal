@@ -56,7 +56,7 @@ export default function App() {
 
   const effectiveRoomId =
     auth.role === 'admin'
-      ? selectedRoomId || 'room-3-14'
+      ? selectedRoomId || 'room-1-1'
       : auth.activeRoomId;
 
   useEffect(() => {
@@ -135,13 +135,13 @@ export default function App() {
     setIsDayEntryModalOpen(true);
   };
 
-  const handleSaveUsageEntry = (entryData: { unitsUsed: number; amountPaid: number; note: string }) => {
+  const handleSaveUsageEntry = (entryData: { unitsUsed: number; note: string }) => {
     store.saveUsageEntry({
       id: selectedExistingEntry?.id,
       roomId: room.id,
       date: selectedDateStr,
       unitsUsed: entryData.unitsUsed,
-      amountPaid: entryData.amountPaid,
+      amountPaid: selectedExistingEntry?.amountPaid ?? 0,
       note: entryData.note,
       createdBy: auth.role === 'admin' ? 'Admin' : tenant ? tenant.name : 'Tenant',
     });
@@ -154,6 +154,7 @@ export default function App() {
   const handleSaveRateConfig = (config: {
     scope: 'building' | 'floor';
     floorNumber?: number;
+    utilityType: 'electricity' | 'water' | 'rent';
     ratePerUnit: number;
   }) => {
     store.setRateConfig({
@@ -240,7 +241,7 @@ export default function App() {
                   <div>
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="text-2xl font-serif font-black text-black dark:text-neutral-100">
-                        Building Floors (8 Floors x 200 Rooms = 1,600 Rooms)
+                        Building Floors (10 Floors x 200 Rooms = 2,000 Rooms)
                       </h3>
                       <span className="font-mono text-xs font-bold text-neutral-600 dark:text-neutral-400 bg-white dark:bg-neutral-900 border border-black dark:border-neutral-200 px-2.5 py-1 rounded-lg">
                         Click any floor to view rooms
@@ -406,7 +407,7 @@ export default function App() {
                         Select a Floor to View its 200 Rooms
                       </h2>
                       <p className="font-mono text-xs text-neutral-600 dark:text-neutral-400">
-                        Total 8 Floors - 1,600 Total Units in Voltra Tower
+                        Total 10 Floors - 2,000 Total Units in Voltra Tower
                       </p>
                     </div>
                   </div>
@@ -465,7 +466,7 @@ export default function App() {
                     Building Financial and Payment Ledger
                   </h2>
                   <p className="font-mono text-xs text-neutral-600 dark:text-neutral-400">
-                    Collection status for {calMonth}/{calYear} across all 8 floors
+                    Collection status for {calMonth}/{calYear} across all 10 floors
                   </p>
                 </div>
 
@@ -585,7 +586,7 @@ export default function App() {
                   onClick={() => {
                     if (confirm('Reset building? All current tenants and logged entries will be cleared.')) {
                       store.resetToSeedData();
-                      alert('Building reset to an empty 1,600-room shell.');
+                      alert('Building reset to an empty 2,000-room shell.');
                     }
                   }}
                   className="bg-black text-white hover:bg-neutral-800 font-bold px-4 py-2 rounded-lg border border-black cursor-pointer"
@@ -646,6 +647,9 @@ export default function App() {
     </div>
   );
 }
+
+
+
 
 
 

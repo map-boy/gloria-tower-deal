@@ -1,4 +1,10 @@
-export type Role = 'tenant' | 'admin';
+﻿export type Role = 'tenant' | 'admin';
+
+export const FLOOR_NUMBERS: number[] = [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8];
+export const ROOMS_PER_FLOOR = 200;
+export const TOTAL_ROOMS = FLOOR_NUMBERS.length * ROOMS_PER_FLOOR;
+
+export type UtilityType = 'electricity' | 'water' | 'rent';
 
 export interface Tenant {
   id: string;
@@ -7,37 +13,39 @@ export interface Tenant {
   email: string;
   roomId: string;
   floorNumber: number;
-  moveInDate: string; // YYYY-MM-DD
+  moveInDate: string;
   role: Role;
 }
 
 export interface Room {
   id: string;
-  roomNumber: string; // e.g. "F3-114"
-  floorNumber: number; // 1-8
+  roomNumber: string;
+  floorNumber: number;
   tenantId?: string;
   tenant?: Tenant;
-  rateOverride?: number; // per floor or per room rate override
+  rateOverride?: number;
 }
 
 export interface UsageEntry {
   id: string;
   roomId: string;
-  date: string; // YYYY-MM-DD
-  unitsUsed: number; // kWh
-  amountPaid: number; // local currency $
+  date: string;
+  utilityType?: UtilityType;
+  unitsUsed: number;
+  amountPaid: number;
   note?: string;
-  createdBy: string; // "tenant" | "admin" | tenant name
-  createdAt: string; // ISO string
+  createdBy: string;
+  createdAt: string;
   updatedAt?: string;
 }
 
 export interface RateConfig {
   id: string;
   scope: 'building' | 'floor';
-  floorNumber?: number; // null if scope is building
-  ratePerUnit: number; // e.g. 0.25 ($/kWh)
-  effectiveFrom: string; // YYYY-MM-DD
+  floorNumber?: number;
+  utilityType?: UtilityType;
+  ratePerUnit: number;
+  effectiveFrom: string;
 }
 
 export type BalanceStatus = 'paid' | 'partial' | 'overdue' | 'no_usage';
@@ -47,14 +55,14 @@ export interface MonthlyRoomStats {
   roomNumber: string;
   tenantName: string;
   year: number;
-  month: number; // 1-12
-  totalUnits: number; // total kWh
-  totalPaid: number; // total $ paid
-  expectedCost: number; // total units * rate
-  balance: number; // expectedCost - totalPaid
+  month: number;
+  totalUnits: number;
+  totalPaid: number;
+  expectedCost: number;
+  balance: number;
   status: BalanceStatus;
   daysLogged: number;
-  appliedRate: number; // $/kWh
+  appliedRate: number;
 }
 
 export interface FloorSummary {

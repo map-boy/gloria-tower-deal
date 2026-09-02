@@ -1,6 +1,6 @@
-import { doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot, collection } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot, collection, query, orderBy } from 'firebase/firestore';
 import { db } from './firebaseConfig';
-import { Room, Tenant, UsageEntry, RateConfig, BuildingSummary, MonthlyRoomStats } from '../../1_core/domain/types';
+import { Room, Tenant, UsageEntry, RateConfig, BuildingSummary, MonthlyRoomStats, UtilityType } from '../../1_core/domain/types';
 import { generateInitialBuildingData } from '../../4_ops/scripts/seedBuilding';
 import { calculateBuildingSummary, calculateRoomMonthlyStats } from '../../1_core/algorithms/balance';
 import { getCurrentYearMonth } from '../../1_core/utils/dateUtils';
@@ -8,12 +8,38 @@ import { getCurrentYearMonth } from '../../1_core/utils/dateUtils';
 const buildingDocRef = doc(db, 'voltraTower', 'building');
 const tenantsDocRef = doc(db, 'voltraTower', 'tenants');
 const usageEntriesCollectionRef = collection(db, 'usageEntries');
+const paymentsCollectionRef = collection(db, 'payments');
+const invoicesCollectionRef = collection(db, 'invoices');
+
+export interface PaymentRecord {
+  id: string;
+  invoiceId: string;
+  provider: string;
+  transactionId: string;
+  amount: number;
+  receivedAt?: string;
+}
+
+export interface InvoiceRecord {
+  id: string;
+  roomId: string;
+  roomNumber: string;
+  month: string;
+  unitsUsed: number;
+  amount: number;
+  referenceCode: string;
+  status: string;
+  paidAt?: string;
+  amountPaid?: number;
+}
 
 export class StorageService {
   private rooms: Room[] = [];
   private tenants: Tenant[] = [];
   private usageEntries: UsageEntry[] = [];
   private rateConfigs: RateConfig[] = [];
+  private payments: PaymentRecord[] = [];
+  private invoices: InvoiceRecord[] = [];
   private listeners: Array<() => void> = [];
 
   constructor() {
@@ -53,6 +79,40 @@ export class StorageService {
       this.usageEntries = snap.docs.map((d) => d.data() as UsageEntry);
       this.notifyListeners();
     });
+
+    onSnapshot(paymentsCollectionRef, (snap) => {
+      this.payments = snap.docs.map((d) => {
+        const data = d.data() as any;
+        return {
+          id: d.id,
+          invoiceId: data.invoiceId,
+          provider: data.provider,
+          transactionId: data.transactionId,
+          amount: data.amount,
+          receivedAt: data.receivedAt ? data.receivedAt.toDate?.().toISOString() ?? String(data.receivedAt) : undefined,
+        } as PaymentRecord;
+      });
+      this.notifyListeners();
+    });
+
+    onSnapshot(invoicesCollectionRef, (snap) => {
+      this.invoices = snap.docs.map((d) => {
+        const data = d.data() as any;
+        return {
+          id: d.id,
+          roomId: data.roomId,
+          roomNumber: data.roomNumber,
+          month: data.month,
+          unitsUsed: data.unitsUsed,
+          amount: data.amount,
+          referenceCode: data.referenceCode,
+          status: data.status,
+          paidAt: data.paidAt ? data.paidAt.toDate?.().toISOString() ?? String(data.paidAt) : undefined,
+          amountPaid: data.amountPaid,
+        } as InvoiceRecord;
+      });
+      this.notifyListeners();
+    });
   }
 
   public async resetToSeedData() {
@@ -90,6 +150,14 @@ export class StorageService {
 
   public getRateConfigs(): RateConfig[] {
     return [...this.rateConfigs];
+  }
+
+  public getPayments(): PaymentRecord[] {
+    return [...this.payments].sort((a, b) => (b.receivedAt || '').localeCompare(a.receivedAt || ''));
+  }
+
+  public getInvoices(): InvoiceRecord[] {
+    return [...this.invoices];
   }
 
   public getRoomById(roomId: string): Room | undefined {
@@ -153,7 +221,7 @@ export class StorageService {
       };
       await setDoc(doc(db, 'usageEntries', entry.id), savedEntry, { merge: true });
     } else {
-      const newId = `entry-${entry.roomId}-${entry.date}`;
+      const newId = `entry-${entry.roomId}-${entry.date}-${entry.utilityType || 'electricity'}`;
       savedEntry = {
         ...entry,
         id: newId,
@@ -171,23 +239,33 @@ export class StorageService {
 
   public async setRateConfig(config: Omit<RateConfig, 'id'> & { id?: string }) {
     let newRateConfigs = [...this.rateConfigs];
+    const utility: UtilityType = config.utilityType || 'electricity';
 
     if (config.scope === 'building') {
-      newRateConfigs = newRateConfigs.filter((r) => r.scope !== 'building');
+      newRateConfigs = newRateConfigs.filter(
+        (r) => !(r.scope === 'building' && (r.utilityType || 'electricity') === utility)
+      );
       newRateConfigs.push({
-        id: 'rate-building-default',
+        id: `rate-building-${utility}`,
         scope: 'building',
+        utilityType: utility,
         ratePerUnit: config.ratePerUnit,
         effectiveFrom: config.effectiveFrom,
       });
     } else if (config.scope === 'floor' && config.floorNumber !== undefined) {
       newRateConfigs = newRateConfigs.filter(
-        (r) => !(r.scope === 'floor' && r.floorNumber === config.floorNumber)
+        (r) =>
+          !(
+            r.scope === 'floor' &&
+            r.floorNumber === config.floorNumber &&
+            (r.utilityType || 'electricity') === utility
+          )
       );
       newRateConfigs.push({
-        id: `rate-floor-${config.floorNumber}`,
+        id: `rate-floor-${config.floorNumber}-${utility}`,
         scope: 'floor',
         floorNumber: config.floorNumber,
+        utilityType: utility,
         ratePerUnit: config.ratePerUnit,
         effectiveFrom: config.effectiveFrom,
       });
@@ -203,6 +281,10 @@ export class StorageService {
     const room = this.getRoomById(roomId);
     if (!room) throw new Error('Room not found');
 
+    // If room already has a tenant, vacate them first (move-out) instead of
+    // silently orphaning their tenant record.
+    const newTenants = this.tenants.filter((t) => t.roomId !== roomId);
+
     const tenantId = `tenant-custom-${Date.now()}`;
     const newTenant: Tenant = {
       id: tenantId,
@@ -215,13 +297,47 @@ export class StorageService {
       role: 'tenant',
     };
 
-    const newTenants = [...this.tenants, newTenant];
+    newTenants.push(newTenant);
     const newRooms = this.rooms.map((r) => (r.id === roomId ? { ...r, tenantId } : r));
 
     await setDoc(tenantsDocRef, { list: newTenants });
     await setDoc(buildingDocRef, { rooms: newRooms, rateConfigs: this.rateConfigs });
 
     return newTenant;
+  }
+
+  public async vacateRoom(roomId: string): Promise<void> {
+    const newTenants = this.tenants.filter((t) => t.roomId !== roomId);
+    const newRooms = this.rooms.map((r) => (r.id === roomId ? { ...r, tenantId: undefined } : r));
+
+    await setDoc(tenantsDocRef, { list: newTenants });
+    await setDoc(buildingDocRef, { rooms: newRooms, rateConfigs: this.rateConfigs });
+  }
+
+  public async moveTenant(
+    fromRoomId: string,
+    toRoomId: string
+  ): Promise<void> {
+    const fromRoom = this.getRoomById(fromRoomId);
+    const toRoom = this.getRoomById(toRoomId);
+    if (!fromRoom || !toRoom) throw new Error('Room not found');
+    if (!fromRoom.tenantId) throw new Error('No tenant in source room');
+    if (toRoom.tenantId) throw new Error('Destination room already occupied');
+
+    const tenant = this.getTenantById(fromRoom.tenantId);
+    if (!tenant) throw new Error('Tenant record not found');
+
+    const newTenants = this.tenants.map((t) =>
+      t.id === tenant.id ? { ...t, roomId: toRoomId, floorNumber: toRoom.floorNumber } : t
+    );
+    const newRooms = this.rooms.map((r) => {
+      if (r.id === fromRoomId) return { ...r, tenantId: undefined };
+      if (r.id === toRoomId) return { ...r, tenantId: tenant.id };
+      return r;
+    });
+
+    await setDoc(tenantsDocRef, { list: newTenants });
+    await setDoc(buildingDocRef, { rooms: newRooms, rateConfigs: this.rateConfigs });
   }
 }
 

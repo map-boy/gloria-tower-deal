@@ -1,4 +1,4 @@
-import { BalanceStatus } from '../domain/types';
+﻿import { BalanceStatus } from '../domain/types';
 
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -13,10 +13,22 @@ export function formatKwh(units: number): string {
   return `${units.toFixed(1)} kWh`;
 }
 
+// Floor numbering: -1 = Basement, 0 = Ground, 1-8 = upper floors (10 floors total)
+export function getFloorLabel(floorNumber: number): string {
+  if (floorNumber === -1) return 'Basement';
+  if (floorNumber === 0) return 'Ground';
+  return `Floor ${floorNumber}`;
+}
+
+export function getFloorCode(floorNumber: number): string {
+  if (floorNumber === -1) return 'B';
+  if (floorNumber === 0) return 'G';
+  return `F${floorNumber}`;
+}
+
 export function formatRoomNumber(floorNumber: number, roomIndex: number): string {
-  // roomIndex 1 to 200 on floor
   const padded = roomIndex.toString().padStart(3, '0');
-  return `F${floorNumber}-${padded}`;
+  return `${getFloorCode(floorNumber)}-${padded}`;
 }
 
 export function getStatusLabel(status: BalanceStatus): string {
@@ -43,21 +55,18 @@ export function getStatusBadgeStyle(status: BalanceStatus): {
         bg: 'bg-neutral-800',
         text: 'text-white',
         border: 'border-black',
-
       };
     case 'partial':
       return {
         bg: 'bg-neutral-400',
         text: 'text-black',
         border: 'border-black',
-
       };
     case 'overdue':
       return {
         bg: 'bg-black',
         text: 'text-white',
         border: 'border-black',
-
       };
     case 'no_usage':
       return {

@@ -1,6 +1,6 @@
-import React from 'react';
+﻿import React from 'react';
 import { FloorSummary } from '../../1_core/domain/types';
-import { formatCurrency, formatKwh } from '../../1_core/utils/formatters';
+import { formatCurrency, formatKwh, getFloorCode, getFloorLabel } from '../../1_core/utils/formatters';
 
 interface FloorCardProps {
   summary: FloorSummary;
@@ -17,10 +17,10 @@ export const FloorCard: React.FC<FloorCardProps> = ({ summary, onSelectFloor }) 
       <div className="flex items-center justify-between pb-3 border-b-2 border-black">
         <div className="flex items-center gap-2">
           <span className="bg-black text-white px-2 py-1 rounded-lg font-mono font-black text-sm">
-            F{summary.floorNumber}
+            {getFloorCode(summary.floorNumber)}
           </span>
           <h3 className="font-serif font-black text-xl text-black">
-            Floor {summary.floorNumber}
+            {getFloorLabel(summary.floorNumber)}
           </h3>
         </div>
         <span className="font-mono text-xs font-bold text-neutral-800 bg-neutral-100 border border-black px-2 py-0.5 rounded">
@@ -71,3 +71,6 @@ export const FloorCard: React.FC<FloorCardProps> = ({ summary, onSelectFloor }) 
     </div>
   );
 };
+
+
+

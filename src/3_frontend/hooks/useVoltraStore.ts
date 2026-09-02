@@ -43,7 +43,7 @@ export interface AuthState {
 
 export function useAuthRole() {
   const [role, setRole] = useState<Role>('tenant');
-  const [activeRoomId, setActiveRoomId] = useState<string>('room-3-14');
+  const [activeRoomId, setActiveRoomId] = useState<string>('room-1-1');
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [checkingAdmin, setCheckingAdmin] = useState(false);
 
@@ -75,3 +75,4 @@ export function useAuthRole() {
     setTenantRoom,
   };
 }
+

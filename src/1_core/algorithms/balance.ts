@@ -1,4 +1,4 @@
-import {
+﻿import {
   UsageEntry,
   RateConfig,
   MonthlyRoomStats,
@@ -7,9 +7,10 @@ import {
   Tenant,
   BuildingSummary,
   FloorSummary,
+  FLOOR_NUMBERS,
 } from '../domain/types';
 
-export const DEFAULT_BUILDING_RATE = 0.25; // $0.25 per kWh
+export const DEFAULT_BUILDING_RATE = 350; // RWF per kWh
 
 export function getEffectiveRate(
   room: Room,
@@ -18,14 +19,12 @@ export function getEffectiveRate(
   if (room.rateOverride !== undefined) {
     return room.rateOverride;
   }
-  // Check floor scope rate
   const floorConfig = rateConfigs.find(
     (rc) => rc.scope === 'floor' && rc.floorNumber === room.floorNumber
   );
   if (floorConfig) {
     return floorConfig.ratePerUnit;
   }
-  // Check building scope rate
   const buildingConfig = rateConfigs.find((rc) => rc.scope === 'building');
   if (buildingConfig) {
     return buildingConfig.ratePerUnit;
@@ -42,8 +41,7 @@ export function calculateRoomMonthlyStats(
   month: number
 ): MonthlyRoomStats {
   const yearMonthPrefix = `${year}-${month.toString().padStart(2, '0')}`;
-  
-  // Filter entries for this room and year/month
+
   const roomMonthEntries = usageEntries.filter((entry) => {
     return entry.roomId === room.id && entry.date.startsWith(yearMonthPrefix);
   });
@@ -109,7 +107,7 @@ export function calculateBuildingSummary(
   let overdueRoomsCount = 0;
   let occupiedCountAll = 0;
 
-  for (let floorNum = 1; floorNum <= 8; floorNum++) {
+  for (const floorNum of FLOOR_NUMBERS) {
     const floorRooms = rooms.filter((r) => r.floorNumber === floorNum);
     let floorUnits = 0;
     let floorCollected = 0;
@@ -175,7 +173,7 @@ export function calculateBuildingSummary(
 
   return {
     buildingName: 'Voltra Tower',
-    totalFloors: 8,
+    totalFloors: FLOOR_NUMBERS.length,
     totalRooms: rooms.length,
     occupiedRooms: occupiedCountAll,
     totalCollectedThisMonth,

@@ -24,10 +24,21 @@ service cloud.firestore {
 
     match /usageEntries/{entryId} {
       allow read: if isSignedIn();
-      allow create: if isAdmin();
+      allow create: if isAdmin() &&
+        (!("amountPaid" in request.resource.data) || request.resource.data.amountPaid == 0);
       allow update: if isAdmin() &&
         request.resource.data.amountPaid == resource.data.amountPaid;
       allow delete: if isAdmin();
+    }
+
+    match /invoices/{invoiceId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     match /deviceTokens/{tokenId} {

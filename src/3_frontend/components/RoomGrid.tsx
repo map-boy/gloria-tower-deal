@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import { Room, Tenant, MonthlyRoomStats, BalanceStatus } from '../../1_core/domain/types';
-import { formatCurrency, formatKwh, getStatusBadgeStyle, getStatusLabel } from '../../1_core/utils/formatters';
+import { formatCurrency, formatKwh, getStatusBadgeStyle, getStatusLabel, getFloorLabel } from '../../1_core/utils/formatters';
 
 interface RoomGridProps {
   floorNumber: number;
@@ -81,11 +81,11 @@ export const RoomGrid: React.FC<RoomGridProps> = ({
             onClick={onBackToFloors}
             className="p-2 bg-white hover:bg-neutral-100 border-2 border-black rounded-lg text-black font-mono font-bold transition-transform active:scale-95 cursor-pointer"
           >
-            ← Back to Floors
+            â† Back to Floors
           </button>
           <div>
             <h2 className="text-2xl sm:text-3xl font-serif font-black text-black">
-              Floor {floorNumber} Rooms List
+              {getFloorLabel(floorNumber)} Rooms List
             </h2>
             <p className="font-mono text-xs text-neutral-600">
               Showing {filteredRooms.length} of {rooms.length} Rooms (200 Total)
@@ -197,7 +197,7 @@ export const RoomGrid: React.FC<RoomGridProps> = ({
                           {getStatusLabel(stats.status)}
                         </span>
                       ) : (
-                        <span className="text-[10px] text-neutral-400">—</span>
+                        <span className="text-[10px] text-neutral-400">â€”</span>
                       )}
                     </td>
 
@@ -207,7 +207,7 @@ export const RoomGrid: React.FC<RoomGridProps> = ({
                         onClick={() => onSelectRoom(room.id)}
                         className="bg-black hover:bg-neutral-800 text-white font-bold text-xs px-3 py-1.5 rounded-lg border border-black cursor-pointer transition-transform active:scale-95 whitespace-nowrap"
                       >
-                        Calendar History 📅
+                        Calendar History ðŸ“…
                       </button>
                     </td>
                   </tr>
@@ -230,7 +230,7 @@ export const RoomGrid: React.FC<RoomGridProps> = ({
             onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
             className="p-2 px-3 bg-white border-2 border-black rounded-lg font-bold disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
           >
-            ◄ Prev
+            â—„ Prev
           </button>
           <span className="font-bold px-2">{currentPage}</span>
           <button
@@ -238,11 +238,13 @@ export const RoomGrid: React.FC<RoomGridProps> = ({
             onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
             className="p-2 px-3 bg-white border-2 border-black rounded-lg font-bold disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
           >
-            Next ►
+            Next â–º
           </button>
         </div>
       </div>
     </div>
   );
 };
+
+
 
