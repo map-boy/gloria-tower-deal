@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { BuildingSummary } from '../../1_core/domain/types';
 import { formatCurrency, formatKwh } from '../../1_core/utils/formatters';
 import { StatPill } from './StatPill';
@@ -22,7 +22,7 @@ export const AdminSummaryPanel: React.FC<AdminSummaryPanelProps> = ({
               Admin Control
             </span>
             <span className="font-mono text-xs font-semibold text-neutral-800">
-              8 Floors • 1,600 Total Rooms
+              10 Floors &bull; 2,000 Total Rooms
             </span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-serif font-black tracking-tight text-black mt-1">
@@ -34,7 +34,7 @@ export const AdminSummaryPanel: React.FC<AdminSummaryPanelProps> = ({
           onClick={onOpenRateConfig}
           className="bg-white hover:bg-neutral-100 text-black border-2 border-black rounded-xl p-3 px-4 font-mono font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-transform active:scale-95 shadow-none"
         >
-          <span>⚡ Config Rate: ${summary.defaultRatePerUnit.toFixed(2)}/kWh</span>
+          <span>âš¡ Config Rate: ${summary.defaultRatePerUnit.toFixed(2)}/kWh</span>
         </button>
       </div>
 
@@ -113,4 +113,5 @@ export const AdminSummaryPanel: React.FC<AdminSummaryPanelProps> = ({
     </div>
   );
 };
+
 

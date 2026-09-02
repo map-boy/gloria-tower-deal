@@ -17,6 +17,8 @@ export function useVoltraStore() {
   return {
     dataVersion,
     getRooms: () => storageService.getRooms(),
+    getInvoices: () => storageService.getInvoices(),
+    getPayments: () => storageService.getPayments(),
     getTenants: () => storageService.getTenants(),
     getUsageEntries: () => storageService.getUsageEntries(),
     getRateConfigs: () => storageService.getRateConfigs(),

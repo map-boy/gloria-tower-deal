@@ -7,6 +7,7 @@ import { TrainerStyleInfoCard } from './3_frontend/components/TrainerStyleInfoCa
 import { CalendarGrid } from './3_frontend/components/CalendarGrid';
 import { DayEntryModal } from './3_frontend/components/DayEntryModal';
 import { AdminSummaryPanel } from './3_frontend/components/AdminSummaryPanel';
+import { PaymentsLedgerPanel } from './3_frontend/components/PaymentsLedgerPanel';
 import { FloorCard } from './3_frontend/components/FloorCard';
 import { RoomGrid } from './3_frontend/components/RoomGrid';
 import { RateConfigModal } from './3_frontend/components/RateConfigModal';
@@ -14,7 +15,7 @@ import { TenantProfileModal } from './3_frontend/components/TenantProfileModal';
 import { SelectRoomModal } from './3_frontend/components/SelectRoomModal';
 import { getCurrentYearMonth } from './1_core/utils/dateUtils';
 import { UsageEntry } from './1_core/domain/types';
-import { formatCurrency, formatKwh, getStatusBadgeStyle, getStatusLabel } from './1_core/utils/formatters';
+import { formatCurrency, formatKwh, getFloorLabel, getStatusBadgeStyle, getStatusLabel } from './1_core/utils/formatters';
 import { registerForNotifications, listenForForegroundMessages } from './2_backend/services/notificationService';
 import { signInWithGoogle, signOutUser, subscribeToAuthState } from './2_backend/services/authService';
 import type { User } from 'firebase/auth';
@@ -128,6 +129,8 @@ export default function App() {
 
   const roomEntries = store.getRoomUsageEntries(room.id);
   const buildingSummary = store.getBuildingSummary(calYear, calMonth);
+  const invoices = store.getInvoices();
+  const payments = store.getPayments();
 
   const handleOpenDayModalForDate = (dateStr: string, existingEntry?: UsageEntry) => {
     setSelectedDateStr(dateStr);
@@ -510,7 +513,7 @@ export default function App() {
                   <tbody>
                     {buildingSummary.perFloorSummaries.map((f) => (
                       <tr key={f.floorNumber} className="border-b border-black dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 bg-white dark:bg-neutral-900">
-                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">Floor {f.floorNumber}</td>
+                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">{getFloorLabel(f.floorNumber)}</td>
                         <td className="p-3 border-r-2 border-black dark:border-neutral-700 text-black dark:text-neutral-100">{formatKwh(f.totalUnits)}</td>
                         <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">
                           {formatCurrency(f.totalCollected)}
@@ -529,6 +532,8 @@ export default function App() {
                   </tbody>
                 </table>
               </div>
+            
+              <PaymentsLedgerPanel invoices={invoices} payments={payments} />
             </div>
           )}
 
@@ -647,6 +652,8 @@ export default function App() {
     </div>
   );
 }
+
+
 
 
 
