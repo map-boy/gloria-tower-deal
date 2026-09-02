@@ -7,6 +7,8 @@ interface TenantProfileModalProps {
   room: Room;
   tenant?: Tenant;
   onAssignTenant: (tenantData: { name: string; phone: string; moveInDate: string }) => void;
+  onMoveTenant?: () => void;
+  onVacateRoom?: () => void;
 }
 
 export const TenantProfileModal: React.FC<TenantProfileModalProps> = ({
@@ -15,6 +17,8 @@ export const TenantProfileModal: React.FC<TenantProfileModalProps> = ({
   room,
   tenant,
   onAssignTenant,
+  onMoveTenant,
+  onVacateRoom,
 }) => {
   const [name, setName] = useState(tenant?.name || '');
   const [phone, setPhone] = useState(tenant?.phone || '');
@@ -97,6 +101,29 @@ export const TenantProfileModal: React.FC<TenantProfileModalProps> = ({
             </button>
           </div>
         </form>
+
+        {tenant && (onMoveTenant || onVacateRoom) && (
+          <div className="flex gap-2 pt-2 border-t-2 border-black mt-4">
+            {onMoveTenant && (
+              <button
+                type="button"
+                onClick={onMoveTenant}
+                className="flex-1 bg-white text-black hover:bg-neutral-100 font-bold text-xs py-2 rounded-xl border-2 border-black transition-transform active:scale-95 cursor-pointer"
+              >
+                Move Tenant
+              </button>
+            )}
+            {onVacateRoom && (
+              <button
+                type="button"
+                onClick={() => { if (window.confirm('Vacate this room? This will remove the tenant.')) onVacateRoom(); }}
+                className="flex-1 bg-white text-black hover:bg-red-50 font-bold text-xs py-2 rounded-xl border-2 border-black transition-transform active:scale-95 cursor-pointer"
+              >
+                Vacate Room
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

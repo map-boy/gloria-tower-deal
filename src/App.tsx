@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useVoltraStore, useAuthRole } from './3_frontend/hooks/useVoltraStore';
 import { useDarkMode } from './3_frontend/hooks/useDarkMode';
 import { Sidebar, ActiveTab } from './3_frontend/components/Sidebar';
@@ -49,6 +49,7 @@ export default function App() {
   const [isRateModalOpen, setIsRateModalOpen] = useState(false);
   const [isTenantProfileModalOpen, setIsTenantProfileModalOpen] = useState(false);
   const [isSelectRoomModalOpen, setIsSelectRoomModalOpen] = useState(false);
+  const [isMoveTenantModalOpen, setIsMoveTenantModalOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -168,6 +169,21 @@ export default function App() {
 
   const handleAssignTenant = (tenantData: { name: string; phone: string; moveInDate: string }) => {
     store.assignTenantToRoom(room.id, tenantData);
+  };
+
+  const handleVacateRoom = () => {
+    store.vacateRoom(room.id);
+    setIsTenantProfileModalOpen(false);
+  };
+
+  const handleOpenMoveTenantModal = () => {
+    setIsTenantProfileModalOpen(false);
+    setIsMoveTenantModalOpen(true);
+  };
+
+  const handleSelectMoveDestination = (destRoomId: string) => {
+    store.moveTenant(room.id, destRoomId);
+    setIsMoveTenantModalOpen(false);
   };
 
   return (
@@ -641,6 +657,8 @@ export default function App() {
         room={room}
         tenant={tenant}
         onAssignTenant={handleAssignTenant}
+        onMoveTenant={tenant ? handleOpenMoveTenantModal : undefined}
+        onVacateRoom={tenant ? handleVacateRoom : undefined}
       />
 
       <SelectRoomModal
@@ -648,6 +666,13 @@ export default function App() {
         onClose={() => setIsSelectRoomModalOpen(false)}
         rooms={store.getRooms()}
         onSelectRoom={(rId) => auth.setActiveRoomId(rId)}
+      />
+
+      <SelectRoomModal
+        isOpen={isMoveTenantModalOpen}
+        onClose={() => setIsMoveTenantModalOpen(false)}
+        rooms={store.getRooms().filter((r) => !r.tenantId)}
+        onSelectRoom={handleSelectMoveDestination}
       />
     </div>
   );

@@ -66,51 +66,71 @@ async function generateInvoicesForMonth(year, month) {
     .where("date", "<=", `${yearMonth}-31`)
     .get();
 
-  const unitsByRoom = {};
+  // Sum usage-based units (electricity, water) per room, per utility type.
+  const unitsByRoomAndUtility = { electricity: {}, water: {} };
   usageSnap.forEach((docSnap) => {
     const e = docSnap.data();
-    if ((e.utilityType || "electricity") !== "electricity") return;
-    unitsByRoom[e.roomId] = (unitsByRoom[e.roomId] || 0) + (e.unitsUsed || 0);
+    const utilityType = e.utilityType || "electricity";
+    if (utilityType !== "electricity" && utilityType !== "water") return;
+    unitsByRoomAndUtility[utilityType][e.roomId] =
+      (unitsByRoomAndUtility[utilityType][e.roomId] || 0) + (e.unitsUsed || 0);
   });
 
-  const buildingRate =
-    (rateConfigs.find((r) => r.scope === "building" && (r.utilityType || "electricity") === "electricity") || {})
-      .ratePerUnit || 350;
+  function getRate(utilityType, room) {
+    const buildingRate = (rateConfigs.find(
+      (r) => r.scope === "building" && (r.utilityType || "electricity") === utilityType
+    ) || {}).ratePerUnit ?? (utilityType === "electricity" ? 350 : undefined);
+    const floorRate = (rateConfigs.find(
+      (r) => r.scope === "floor" && r.floorNumber === room.floorNumber && (r.utilityType || "electricity") === utilityType
+    ) || {}).ratePerUnit;
+    return room.rateOverride ?? floorRate ?? buildingRate;
+  }
+
+  const UTILITY_CODES = { electricity: "ELEC", water: "WATR", rent: "RENT" };
 
   let created = 0;
   const batchPromises = [];
 
   for (const room of rooms) {
     if (!room.tenantId) continue;
-    const units = unitsByRoom[room.id] || 0;
-    if (units <= 0) continue;
 
-    const floorRate = (rateConfigs.find(
-      (r) => r.scope === "floor" && r.floorNumber === room.floorNumber && (r.utilityType || "electricity") === "electricity"
-    ) || {}).ratePerUnit;
-    const rate = room.rateOverride ?? floorRate ?? buildingRate;
-    const amount = Math.round(units * rate * 100) / 100;
+    for (const utilityType of ["electricity", "water", "rent"]) {
+      let units;
+      if (utilityType === "rent") {
+        // Rent is a fixed monthly charge, not usage-based.
+        units = 1;
+      } else {
+        units = unitsByRoomAndUtility[utilityType][room.id] || 0;
+        if (units <= 0) continue;
+      }
 
-    const referenceCode = `VT-${room.roomNumber.replace(/\s+/g, "")}-${yearMonth}`.toUpperCase();
-    const invoiceId = `invoice-${room.id}-${yearMonth}`;
+      const rate = getRate(utilityType, room);
+      if (!rate) continue; // no rate configured for this utility — skip instead of invoicing $0
 
-    const existing = await db.doc(`invoices/${invoiceId}`).get();
-    if (existing.exists) continue;
+      const amount = Math.round(units * rate * 100) / 100;
 
-    batchPromises.push(
-      db.doc(`invoices/${invoiceId}`).set({
-        roomId: room.id,
-        roomNumber: room.roomNumber,
-        month: yearMonth,
-        unitsUsed: units,
-        amount,
-        amountPaid: 0,
-        referenceCode,
-        status: "pending",
-        createdAt: FieldValue.serverTimestamp(),
-      })
-    );
-    created++;
+      const referenceCode = `VT-${room.roomNumber.replace(/\s+/g, "")}-${yearMonth}-${UTILITY_CODES[utilityType]}`.toUpperCase();
+      const invoiceId = `invoice-${room.id}-${yearMonth}-${utilityType}`;
+
+      const existing = await db.doc(`invoices/${invoiceId}`).get();
+      if (existing.exists) continue;
+
+      batchPromises.push(
+        db.doc(`invoices/${invoiceId}`).set({
+          roomId: room.id,
+          roomNumber: room.roomNumber,
+          month: yearMonth,
+          utilityType,
+          unitsUsed: units,
+          amount,
+          amountPaid: 0,
+          referenceCode,
+          status: "pending",
+          createdAt: FieldValue.serverTimestamp(),
+        })
+      );
+      created++;
+    }
   }
 
   await Promise.all(batchPromises);
@@ -167,7 +187,7 @@ exports.initiateIremboPayment = onCall(
       throw new Error("Invoice already paid");
     }
 
-    // PLACEHOLDER call — replace with real Irembo Pay API request.
+    // PLACEHOLDER call â€” replace with real Irembo Pay API request.
 
     await invoiceRef.update({
       status: "push_initiated",
