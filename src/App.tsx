@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useVoltraStore, useAuthRole } from './3_frontend/hooks/useVoltraStore';
 import { useDarkMode } from './3_frontend/hooks/useDarkMode';
 import { Sidebar, ActiveTab } from './3_frontend/components/Sidebar';
@@ -16,7 +16,7 @@ import { getCurrentYearMonth } from './1_core/utils/dateUtils';
 import { UsageEntry } from './1_core/domain/types';
 import { formatCurrency, formatKwh, getStatusBadgeStyle, getStatusLabel } from './1_core/utils/formatters';
 import { registerForNotifications, listenForForegroundMessages } from './2_backend/services/notificationService';
-import { signInWithGoogle, signOutUser, subscribeToAuthState, verifyAdminPassword } from './2_backend/services/authService';
+import { signInWithGoogle, signOutUser, subscribeToAuthState } from './2_backend/services/authService';
 import type { User } from 'firebase/auth';
 
 export default function App() {
@@ -185,20 +185,7 @@ export default function App() {
             }
           }}
           role={auth.role}
-          onRoleToggle={() => {
-            const nextRole = auth.role === 'admin' ? 'tenant' : 'admin';
-            if (nextRole === 'admin') {
-              const pw = window.prompt('Enter admin password:');
-              if (pw === null || !verifyAdminPassword(pw)) {
-                alert('Incorrect admin password.');
-                return;
-              }
-            }
-            auth.setRole(nextRole);
-            if (nextRole === 'admin') {
-              setActiveTab('home');
-            }
-          }}
+          onLogout={() => signOutUser()}
           activeRoomNumber={room.roomNumber}
           activeTenantName={tenant?.name}
           onSelectTenantRoomModal={() => setIsSelectRoomModalOpen(true)}
@@ -659,6 +646,9 @@ export default function App() {
     </div>
   );
 }
+
+
+
 
 
 

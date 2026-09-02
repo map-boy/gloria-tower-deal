@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { Role } from '../../1_core/domain/types';
 
 export type ActiveTab = 'home' | 'floors' | 'rooms' | 'payments' | 'calendar' | 'settings';
@@ -7,24 +7,24 @@ interface SidebarProps {
   activeTab: ActiveTab;
   onTabChange: (tab: ActiveTab) => void;
   role: Role;
-  onRoleToggle: () => void;
   activeRoomNumber?: string;
   activeTenantName?: string;
   onSelectTenantRoomModal?: () => void;
   isMobileOpen: boolean;
   onCloseMobile: () => void;
+  onLogout: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onTabChange,
   role,
-  onRoleToggle,
   activeRoomNumber,
   activeTenantName,
   onSelectTenantRoomModal,
   isMobileOpen,
   onCloseMobile,
+  onLogout,
 }) => {
   const navItems: { id: ActiveTab; label: string; symbol: string; adminOnly?: boolean }[] = [
     { id: 'home', label: 'Home', symbol: '\u2302' },
@@ -134,16 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <div className="space-y-3 pt-4 border-t-2 border-black/20 dark:border-neutral-200/20">
           <button
-            onClick={onRoleToggle}
-            className="w-full bg-white dark:bg-neutral-900 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-black dark:text-neutral-100 font-mono font-bold text-xs p-2.5 rounded-lg border-2 border-black dark:border-neutral-200 flex items-center justify-center gap-2 cursor-pointer shadow-none active:scale-95 transition-transform"
-          >
-            <span>&#8635; Switch to {role === 'admin' ? 'Tenant View' : 'Admin View'}</span>
-          </button>
-
-          <button
-            onClick={() => {
-              alert('Logged out of session');
-            }}
+            onClick={onLogout}
             className="w-full text-left flex items-center gap-2 px-3 py-2 text-xs font-mono font-bold text-neutral-800 dark:text-neutral-300 hover:text-black dark:hover:text-white cursor-pointer"
           >
             <span>&#8617;</span>

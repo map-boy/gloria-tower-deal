@@ -1,5 +1,6 @@
-import { signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
-import { auth, googleProvider } from "./firebaseConfig";
+﻿import { signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, googleProvider, db } from "./firebaseConfig";
 
 export async function signInWithGoogle(): Promise<User | null> {
   try {
@@ -19,6 +20,9 @@ export function subscribeToAuthState(callback: (user: User | null) => void): () 
   return onAuthStateChanged(auth, callback);
 }
 
-export function verifyAdminPassword(password: string): boolean {
-  return password === import.meta.env.VITE_ADMIN_PASSWORD;
+export async function isCurrentUserAdmin(): Promise<boolean> {
+  const user = auth.currentUser;
+  if (!user) return false;
+  const snap = await getDoc(doc(db, "admins", user.uid));
+  return snap.exists();
 }

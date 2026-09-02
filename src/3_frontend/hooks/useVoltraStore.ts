@@ -1,18 +1,19 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { storageService } from '../../2_backend/services/storageService';
 import { getCurrentYearMonth } from '../../1_core/utils/dateUtils';
 import { Role } from '../../1_core/domain/types';
+import { auth } from '../../2_backend/services/firebaseConfig';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { isCurrentUserAdmin } from '../../2_backend/services/authService';
 
 export function useVoltraStore() {
   const [dataVersion, setDataVersion] = useState(0);
-
   useEffect(() => {
     const unsubscribe = storageService.subscribe(() => {
       setDataVersion((v) => v + 1);
     });
     return unsubscribe;
   }, []);
-
   return {
     dataVersion,
     getRooms: () => storageService.getRooms(),
@@ -36,29 +37,41 @@ export function useVoltraStore() {
 
 export interface AuthState {
   role: Role;
-  activeRoomId: string; // Defaults to F3-114 e.g. room-3-14
+  activeRoomId: string;
   activeTenantName: string;
 }
 
 export function useAuthRole() {
   const [role, setRole] = useState<Role>('tenant');
   const [activeRoomId, setActiveRoomId] = useState<string>('room-3-14');
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [checkingAdmin, setCheckingAdmin] = useState(false);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      setFirebaseUser(user);
+      if (!user) {
+        setRole('tenant');
+        return;
+      }
+      setCheckingAdmin(true);
+      const admin = await isCurrentUserAdmin();
+      setRole(admin ? 'admin' : 'tenant');
+      setCheckingAdmin(false);
+    });
+    return unsub;
+  }, []);
 
   const setTenantRoom = (roomId: string) => {
     setActiveRoomId(roomId);
-    setRole('tenant');
-  };
-
-  const setAdmin = () => {
-    setRole('admin');
   };
 
   return {
     role,
     activeRoomId,
-    setRole,
+    firebaseUser,
+    checkingAdmin,
     setActiveRoomId,
     setTenantRoom,
-    setAdmin,
   };
 }

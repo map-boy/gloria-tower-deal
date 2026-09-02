@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    function isTenantOfRoom(roomId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/tenants/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/tenants/$(request.auth.uid)).data.roomId == roomId;
+    }
+
+    match /voltraTower/building {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /voltraTower/tenants {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /usageEntries/{entryId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin();
+      allow update: if isAdmin() &&
+        request.resource.data.amountPaid == resource.data.amountPaid;
+      allow delete: if isAdmin();
+    }
+
+    match /deviceTokens/{tokenId} {
+      allow read: if false;
+      allow write: if isSignedIn();
+    }
+
+    match /admins/{uid} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
