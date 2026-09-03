@@ -6,11 +6,15 @@ import { StatPill } from './StatPill';
 interface AdminSummaryPanelProps {
   summary: BuildingSummary;
   onOpenRateConfig: () => void;
+  unseenPaymentsCount?: number;
+  onViewPayments?: () => void;
 }
 
 export const AdminSummaryPanel: React.FC<AdminSummaryPanelProps> = ({
   summary,
   onOpenRateConfig,
+  unseenPaymentsCount = 0,
+  onViewPayments,
 }) => {
   return (
     <div className="bg-white border-3 border-black rounded-2xl p-5 sm:p-6 text-black mb-8 shadow-none">
@@ -30,12 +34,27 @@ export const AdminSummaryPanel: React.FC<AdminSummaryPanelProps> = ({
           </h2>
         </div>
 
-        <button
-          onClick={onOpenRateConfig}
-          className="bg-white hover:bg-neutral-100 text-black border-2 border-black rounded-xl p-3 px-4 font-mono font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-transform active:scale-95 shadow-none"
-        >
-          <span>âš¡ Config Rate: ${summary.defaultRatePerUnit.toFixed(2)}/kWh</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {onViewPayments && (
+            <button
+              onClick={onViewPayments}
+              className="relative bg-white hover:bg-neutral-100 text-black border-2 border-black rounded-xl p-3 px-4 font-mono font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-transform active:scale-95 shadow-none"
+            >
+              <span>ðŸ”” Payments</span>
+              {unseenPaymentsCount > 0 && (
+                <span className="absolute -top-2 -right-2 bg-black text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white">
+                  {unseenPaymentsCount > 9 ? '9+' : unseenPaymentsCount}
+                </span>
+              )}
+            </button>
+          )}
+          <button
+            onClick={onOpenRateConfig}
+            className="bg-white hover:bg-neutral-100 text-black border-2 border-black rounded-xl p-3 px-4 font-mono font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-transform active:scale-95 shadow-none"
+          >
+            <span>âš¡ Config Rate: ${summary.defaultRatePerUnit.toFixed(2)}/kWh</span>
+          </button>
+        </div>
       </div>
 
       {/* Grid of Key Metrics */}

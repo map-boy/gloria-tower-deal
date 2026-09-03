@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { storageService } from '../../2_backend/services/storageService';
 import { getCurrentYearMonth } from '../../1_core/utils/dateUtils';
 import { Role } from '../../1_core/domain/types';
@@ -19,6 +19,8 @@ export function useVoltraStore() {
     getRooms: () => storageService.getRooms(),
     getInvoices: () => storageService.getInvoices(),
     getPayments: () => storageService.getPayments(),
+    getUnseenPaymentsCount: () => storageService.getUnseenPaymentsCount(),
+    markPaymentsSeen: () => storageService.markPaymentsSeen(),
     getTenants: () => storageService.getTenants(),
     getUsageEntries: () => storageService.getUsageEntries(),
     getRateConfigs: () => storageService.getRateConfigs(),

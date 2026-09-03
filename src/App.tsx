@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useVoltraStore, useAuthRole } from './3_frontend/hooks/useVoltraStore';
 import { useDarkMode } from './3_frontend/hooks/useDarkMode';
 import { Sidebar, ActiveTab } from './3_frontend/components/Sidebar';
@@ -255,6 +255,11 @@ export default function App() {
                   <AdminSummaryPanel
                     summary={buildingSummary}
                     onOpenRateConfig={() => setIsRateModalOpen(true)}
+                    unseenPaymentsCount={store.getUnseenPaymentsCount()}
+                    onViewPayments={() => {
+                      store.markPaymentsSeen();
+                      setActiveTab('payments');
+                    }}
                   />
 
                   <div>
