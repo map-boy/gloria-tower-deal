@@ -3,6 +3,7 @@
   RateConfig,
   MonthlyRoomStats,
   BalanceStatus,
+  UtilityType,
   Room,
   Tenant,
   BuildingSummary,
@@ -14,18 +15,19 @@ export const DEFAULT_BUILDING_RATE = 350; // RWF per kWh
 
 export function getEffectiveRate(
   room: Room,
-  rateConfigs: RateConfig[]
+  rateConfigs: RateConfig[],
+  utilityType: UtilityType = 'electricity'
 ): number {
   if (room.rateOverride !== undefined) {
     return room.rateOverride;
   }
   const floorConfig = rateConfigs.find(
-    (rc) => rc.scope === 'floor' && rc.floorNumber === room.floorNumber
+    (rc) => rc.scope === 'floor' && rc.floorNumber === room.floorNumber && (rc.utilityType || 'electricity') === utilityType
   );
   if (floorConfig) {
     return floorConfig.ratePerUnit;
   }
-  const buildingConfig = rateConfigs.find((rc) => rc.scope === 'building');
+  const buildingConfig = rateConfigs.find((rc) => rc.scope === 'building' && (rc.utilityType || 'electricity') === utilityType);
   if (buildingConfig) {
     return buildingConfig.ratePerUnit;
   }
@@ -38,12 +40,17 @@ export function calculateRoomMonthlyStats(
   usageEntries: UsageEntry[],
   rateConfigs: RateConfig[],
   year: number,
-  month: number
+  month: number,
+  utilityType: UtilityType = 'electricity'
 ): MonthlyRoomStats {
   const yearMonthPrefix = `${year}-${month.toString().padStart(2, '0')}`;
 
   const roomMonthEntries = usageEntries.filter((entry) => {
-    return entry.roomId === room.id && entry.date.startsWith(yearMonthPrefix);
+    return (
+      entry.roomId === room.id &&
+      entry.date.startsWith(yearMonthPrefix) &&
+      (entry.utilityType || 'electricity') === utilityType
+    );
   });
 
   const totalUnits = roomMonthEntries.reduce(
@@ -55,7 +62,7 @@ export function calculateRoomMonthlyStats(
     0
   );
 
-  const appliedRate = getEffectiveRate(room, rateConfigs);
+  const appliedRate = getEffectiveRate(room, rateConfigs, utilityType);
   const expectedCost = totalUnits * appliedRate;
   const balance = expectedCost - totalPaid;
 
@@ -92,7 +99,8 @@ export function calculateBuildingSummary(
   usageEntries: UsageEntry[],
   rateConfigs: RateConfig[],
   year: number,
-  month: number
+  month: number,
+  utilityType: UtilityType = 'electricity'
 ): BuildingSummary {
   const tenantMap = new Map<string, Tenant>();
   tenants.forEach((t) => tenantMap.set(t.id, t));
@@ -119,7 +127,8 @@ export function calculateBuildingSummary(
 
     const floorRate = getEffectiveRate(
       { id: '', roomNumber: '', floorNumber: floorNum },
-      rateConfigs
+      rateConfigs,
+      utilityType
     );
 
     floorRooms.forEach((room) => {
@@ -132,7 +141,8 @@ export function calculateBuildingSummary(
         usageEntries,
         rateConfigs,
         year,
-        month
+        month,
+        utilityType
       );
 
       floorUnits += stats.totalUnits;

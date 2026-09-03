@@ -1,4 +1,4 @@
-const { onDocumentWritten } = require("firebase-functions/v2/firestore");
+﻿const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onRequest, onCall } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
@@ -105,7 +105,7 @@ async function generateInvoicesForMonth(year, month) {
       }
 
       const rate = getRate(utilityType, room);
-      if (!rate) continue; // no rate configured for this utility — skip instead of invoicing $0
+      if (!rate) continue; // no rate configured for this utility â€” skip instead of invoicing $0
 
       const amount = Math.round(units * rate * 100) / 100;
 
@@ -187,7 +187,7 @@ exports.initiateIremboPayment = onCall(
       throw new Error("Invoice already paid");
     }
 
-    // PLACEHOLDER call â€” replace with real Irembo Pay API request.
+    // PLACEHOLDER call Ã¢â‚¬â€ replace with real Irembo Pay API request.
 
     await invoiceRef.update({
       status: "push_initiated",
@@ -327,13 +327,14 @@ exports.iremboPaymentWebhook = onRequest(
     }
 
     if (invoice.roomId && invoice.month) {
-      const entryId = `entry-${invoice.roomId}-${invoice.month}-payment`;
+      const utilityType = invoice.utilityType || "electricity";
+      const entryId = `entry-${invoice.roomId}-${invoice.month}-${utilityType}-payment`;
       await db.doc(`usageEntries/${entryId}`).set(
         {
           id: entryId,
           roomId: invoice.roomId,
           date: invoice.month,
-          utilityType: "electricity",
+          utilityType,
           unitsUsed: invoice.unitsUsed || 0,
           amountPaid: totalPaidNow,
           note: newStatus === "partial"
