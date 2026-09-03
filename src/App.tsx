@@ -51,6 +51,8 @@ export default function App() {
   const [isSelectRoomModalOpen, setIsSelectRoomModalOpen] = useState(false);
   const [isMoveTenantModalOpen, setIsMoveTenantModalOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isSelfRegisterPickerOpen, setIsSelfRegisterPickerOpen] = useState(false);
+  const [selfRegisterRoomId, setSelfRegisterRoomId] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -115,20 +117,51 @@ export default function App() {
   }
 
   if (auth.role === 'tenant' && !myTenantRecord) {
+    const vacantRooms = store.getRooms().filter((r) => !r.tenantId);
+    const pickedRoom = selfRegisterRoomId ? store.getRoomById(selfRegisterRoomId) : undefined;
     return (
       <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100 p-4">
         <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center max-w-sm w-full space-y-3">
           <div className="font-serif font-black text-xl">No Room Assigned</div>
           <p className="text-xs text-neutral-600 dark:text-neutral-400">
-            {currentUser?.email} isn't linked to a room yet. Ask the building admin to add this email when assigning your room.
+            {currentUser?.email} isn't linked to a room yet. Pick a vacant room to register yourself as its tenant.
           </p>
           <button
-            onClick={() => signOutUser()}
+            onClick={() => setIsSelfRegisterPickerOpen(true)}
             className="w-full bg-black text-white hover:bg-neutral-800 font-bold text-sm py-3 rounded-xl border-2 border-black transition-transform active:scale-95 cursor-pointer"
+          >
+            Select a Room
+          </button>
+          <button
+            onClick={() => signOutUser()}
+            className="w-full bg-white hover:bg-neutral-100 text-black font-bold text-xs py-2.5 rounded-xl border-2 border-black cursor-pointer"
           >
             Log out
           </button>
         </div>
+
+        <SelectRoomModal
+          isOpen={isSelfRegisterPickerOpen}
+          onClose={() => setIsSelfRegisterPickerOpen(false)}
+          rooms={vacantRooms}
+          onSelectRoom={(rId) => {
+            setSelfRegisterRoomId(rId);
+            setIsSelfRegisterPickerOpen(false);
+          }}
+        />
+
+        {pickedRoom && (
+          <TenantProfileModal
+            isOpen={!!selfRegisterRoomId}
+            onClose={() => setSelfRegisterRoomId(null)}
+            room={pickedRoom}
+            lockedEmail={currentUser?.email || ''}
+            onAssignTenant={(tenantData) => {
+              store.assignTenantToRoom(pickedRoom.id, tenantData);
+              setSelfRegisterRoomId(null);
+            }}
+          />
+        )}
       </div>
     );
   }

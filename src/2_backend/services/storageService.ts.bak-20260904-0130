@@ -6,7 +6,7 @@ import { calculateBuildingSummary, calculateRoomMonthlyStats } from '../../1_cor
 import { getCurrentYearMonth } from '../../1_core/utils/dateUtils';
 
 const buildingDocRef = doc(db, 'voltraTower', 'building');
-const tenantsCollectionRef = collection(db, 'tenants');
+const tenantsDocRef = doc(db, 'voltraTower', 'tenants');
 const usageEntriesCollectionRef = collection(db, 'usageEntries');
 const paymentsCollectionRef = collection(db, 'payments');
 const invoicesCollectionRef = collection(db, 'invoices');
@@ -52,6 +52,7 @@ export class StorageService {
       if (!buildingSnap.exists()) {
         const dataset = generateInitialBuildingData();
         await setDoc(buildingDocRef, { rooms: dataset.rooms, rateConfigs: dataset.rateConfigs });
+        await setDoc(tenantsDocRef, { list: dataset.tenants });
       }
     } catch (e) {
       console.error('Failed to initialize Firestore building data', e);
@@ -66,9 +67,12 @@ export class StorageService {
       }
     });
 
-    onSnapshot(tenantsCollectionRef, (snap) => {
-      this.tenants = snap.docs.map((d) => d.data() as Tenant);
-      this.notifyListeners();
+    onSnapshot(tenantsDocRef, (snap) => {
+      const data = snap.data();
+      if (data) {
+        this.tenants = data.list || [];
+        this.notifyListeners();
+      }
     });
 
     onSnapshot(usageEntriesCollectionRef, (snap) => {
@@ -114,9 +118,7 @@ export class StorageService {
   public async resetToSeedData() {
     const dataset = generateInitialBuildingData();
     await setDoc(buildingDocRef, { rooms: dataset.rooms, rateConfigs: dataset.rateConfigs });
-
-    const existingTenants = await getDocs(tenantsCollectionRef);
-    await Promise.all(existingTenants.docs.map((d) => deleteDoc(d.ref)));
+    await setDoc(tenantsDocRef, { list: dataset.tenants });
 
     const existingEntries = await getDocs(usageEntriesCollectionRef);
     await Promise.all(existingEntries.docs.map((d) => deleteDoc(d.ref)));
@@ -301,8 +303,7 @@ export class StorageService {
 
     // If room already has a tenant, vacate them first (move-out) instead of
     // silently orphaning their tenant record.
-    const existingInRoom = this.tenants.filter((t) => t.roomId === roomId);
-    await Promise.all(existingInRoom.map((t) => deleteDoc(doc(db, 'tenants', t.id))));
+    const newTenants = this.tenants.filter((t) => t.roomId !== roomId);
 
     const tenantId = `tenant-custom-${Date.now()}`;
     const newTenant: Tenant = {
@@ -316,19 +317,20 @@ export class StorageService {
       role: 'tenant',
     };
 
+    newTenants.push(newTenant);
     const newRooms = this.rooms.map((r) => (r.id === roomId ? { ...r, tenantId } : r));
 
-    await setDoc(doc(db, 'tenants', tenantId), newTenant);
+    await setDoc(tenantsDocRef, { list: newTenants });
     await setDoc(buildingDocRef, { rooms: newRooms, rateConfigs: this.rateConfigs });
 
     return newTenant;
   }
 
   public async vacateRoom(roomId: string): Promise<void> {
-    const existingInRoom = this.tenants.filter((t) => t.roomId === roomId);
-    await Promise.all(existingInRoom.map((t) => deleteDoc(doc(db, 'tenants', t.id))));
+    const newTenants = this.tenants.filter((t) => t.roomId !== roomId);
     const newRooms = this.rooms.map((r) => (r.id === roomId ? { ...r, tenantId: undefined } : r));
 
+    await setDoc(tenantsDocRef, { list: newTenants });
     await setDoc(buildingDocRef, { rooms: newRooms, rateConfigs: this.rateConfigs });
   }
 
@@ -345,14 +347,16 @@ export class StorageService {
     const tenant = this.getTenantById(fromRoom.tenantId);
     if (!tenant) throw new Error('Tenant record not found');
 
-    const updatedTenant: Tenant = { ...tenant, roomId: toRoomId, floorNumber: toRoom.floorNumber };
+    const newTenants = this.tenants.map((t) =>
+      t.id === tenant.id ? { ...t, roomId: toRoomId, floorNumber: toRoom.floorNumber } : t
+    );
     const newRooms = this.rooms.map((r) => {
       if (r.id === fromRoomId) return { ...r, tenantId: undefined };
       if (r.id === toRoomId) return { ...r, tenantId: tenant.id };
       return r;
     });
 
-    await setDoc(doc(db, 'tenants', tenant.id), updatedTenant);
+    await setDoc(tenantsDocRef, { list: newTenants });
     await setDoc(buildingDocRef, { rooms: newRooms, rateConfigs: this.rateConfigs });
   }
 }

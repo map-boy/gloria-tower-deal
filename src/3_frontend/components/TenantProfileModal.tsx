@@ -9,6 +9,7 @@ interface TenantProfileModalProps {
   onAssignTenant: (tenantData: { name: string; phone: string; email: string; moveInDate: string }) => void;
   onMoveTenant?: () => void;
   onVacateRoom?: () => void;
+  lockedEmail?: string;
 }
 
 export const TenantProfileModal: React.FC<TenantProfileModalProps> = ({
@@ -19,10 +20,11 @@ export const TenantProfileModal: React.FC<TenantProfileModalProps> = ({
   onAssignTenant,
   onMoveTenant,
   onVacateRoom,
+  lockedEmail,
 }) => {
   const [name, setName] = useState(tenant?.name || '');
   const [phone, setPhone] = useState(tenant?.phone || '');
-  const [email, setEmail] = useState(tenant?.email || '');
+  const [email, setEmail] = useState(tenant?.email || lockedEmail || '');
   const [moveInDate, setMoveInDate] = useState(
     tenant?.moveInDate || new Date().toISOString().split('T')[0]
   );
@@ -73,17 +75,24 @@ export const TenantProfileModal: React.FC<TenantProfileModalProps> = ({
           </div>
 
           <div>
-            <label className="block font-bold uppercase mb-1">Google Sign-In Email *</label>
+            <label className="block font-bold uppercase mb-1">
+              {lockedEmail ? 'Registering As' : 'Google Sign-In Email *'}
+            </label>
             <input
               type="email"
               required
+              disabled={!!lockedEmail}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="tenant@gmail.com"
-              className="w-full bg-white text-black text-sm p-3 border-2 border-black rounded-xl focus:outline-none"
+              className={`w-full text-black text-sm p-3 border-2 border-black rounded-xl focus:outline-none ${
+                lockedEmail ? 'bg-neutral-100' : 'bg-white'
+              }`}
             />
             <p className="text-[10px] font-mono text-neutral-600 mt-1">
-              Must match the Google account the tenant will sign in with &mdash; this is what grants them access to this room.
+              {lockedEmail
+                ? 'This is your signed-in Google account and cannot be changed.'
+                : 'Must match the Google account the tenant will sign in with &mdash; this is what grants them access to this room.'}
             </p>
           </div>
 
