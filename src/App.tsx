@@ -4,7 +4,7 @@ import { useDarkMode } from './3_frontend/hooks/useDarkMode';
 import { Sidebar, ActiveTab } from './3_frontend/components/Sidebar';
 import { TopBar } from './3_frontend/components/TopBar';
 import { TrainerStyleInfoCard } from './3_frontend/components/TrainerStyleInfoCard';
-import { CalendarGrid } from './3_frontend/components/CalendarGrid';
+import { MonthlyReadingPanel } from './3_frontend/components/MonthlyReadingPanel';
 import { DayEntryModal } from './3_frontend/components/DayEntryModal';
 import { AdminSummaryPanel } from './3_frontend/components/AdminSummaryPanel';
 import { PaymentsLedgerPanel } from './3_frontend/components/PaymentsLedgerPanel';
@@ -129,6 +129,8 @@ export default function App() {
   };
 
   const roomEntries = store.getRoomUsageEntries(room.id);
+  const monthlyDateStr = `${calYear}-${calMonth.toString().padStart(2, '0')}-01`;
+  const monthEntry = roomEntries.find((e) => e.date === monthlyDateStr);
   const buildingSummary = store.getBuildingSummary(calYear, calMonth);
   const invoices = store.getInvoices();
   const payments = store.getPayments();
@@ -229,7 +231,7 @@ export default function App() {
                 : activeTab === 'payments'
                 ? 'Building Payments Ledger'
                 : activeTab === 'calendar'
-                ? `Calendar Log - ${room.roomNumber}`
+                ? `Monthly Log - ${room.roomNumber}`
                 : 'System Settings'
             }
             onBack={
@@ -296,25 +298,19 @@ export default function App() {
                     stats={roomStats}
                     onOpenCalendar={() => setActiveTab('calendar')}
                     onOpenTenantProfile={() => setIsTenantProfileModalOpen(true)}
-                    onLogUsage={() => {
-                      const todayStr = new Date().toISOString().split('T')[0];
-                      const todayEntry = roomEntries.find((e) => e.date === todayStr);
-                      handleOpenDayModalForDate(todayStr, todayEntry);
-                    }}
+                    onLogUsage={() => handleOpenDayModalForDate(monthlyDateStr, monthEntry)}
                     role={auth.role}
                   />
 
-                  <CalendarGrid
+                  <MonthlyReadingPanel
                     year={calYear}
                     month={calMonth}
                     onMonthChange={(y, m) => {
                       setCalYear(y);
                       setCalMonth(m);
                     }}
-                    entries={roomEntries}
-                    onSelectDate={(dateStr, existingEntry) => {
-                      handleOpenDayModalForDate(dateStr, existingEntry);
-                    }}
+                    entry={monthEntry}
+                    onOpenEntry={() => handleOpenDayModalForDate(monthlyDateStr, monthEntry)}
                     appliedRate={roomStats.appliedRate}
                   />
 
@@ -324,13 +320,10 @@ export default function App() {
                         Recent Electricity and Payment Logs ({room.roomNumber})
                       </h3>
                       <button
-                        onClick={() => {
-                          const todayStr = new Date().toISOString().split('T')[0];
-                          handleOpenDayModalForDate(todayStr);
-                        }}
+                        onClick={() => handleOpenDayModalForDate(monthlyDateStr, monthEntry)}
                         className="bg-black dark:bg-neutral-100 text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-white font-mono font-bold text-xs px-3 py-1.5 rounded-lg border border-black dark:border-neutral-200 cursor-pointer"
                       >
-                        + Log Today
+                        + Log This Month
                       </button>
                     </div>
 
@@ -458,25 +451,19 @@ export default function App() {
                 stats={roomStats}
                 onOpenCalendar={() => setActiveTab('calendar')}
                 onOpenTenantProfile={() => setIsTenantProfileModalOpen(true)}
-                onLogUsage={() => {
-                  const todayStr = new Date().toISOString().split('T')[0];
-                  const todayEntry = roomEntries.find((e) => e.date === todayStr);
-                  handleOpenDayModalForDate(todayStr, todayEntry);
-                }}
+                onLogUsage={() => handleOpenDayModalForDate(monthlyDateStr, monthEntry)}
                 role={auth.role}
               />
 
-              <CalendarGrid
+              <MonthlyReadingPanel
                 year={calYear}
                 month={calMonth}
                 onMonthChange={(y, m) => {
                   setCalYear(y);
                   setCalMonth(m);
                 }}
-                entries={roomEntries}
-                onSelectDate={(dateStr, existingEntry) => {
-                  handleOpenDayModalForDate(dateStr, existingEntry);
-                }}
+                entry={monthEntry}
+                onOpenEntry={() => handleOpenDayModalForDate(monthlyDateStr, monthEntry)}
                 appliedRate={roomStats.appliedRate}
               />
             </div>
@@ -560,17 +547,15 @@ export default function App() {
 
           {activeTab === 'calendar' && (
             <div className="space-y-6">
-              <CalendarGrid
+              <MonthlyReadingPanel
                 year={calYear}
                 month={calMonth}
                 onMonthChange={(y, m) => {
                   setCalYear(y);
                   setCalMonth(m);
                 }}
-                entries={roomEntries}
-                onSelectDate={(dateStr, existingEntry) => {
-                  handleOpenDayModalForDate(dateStr, existingEntry);
-                }}
+                entry={monthEntry}
+                onOpenEntry={() => handleOpenDayModalForDate(monthlyDateStr, monthEntry)}
                 appliedRate={roomStats.appliedRate}
               />
             </div>

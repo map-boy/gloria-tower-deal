@@ -63,7 +63,7 @@ export const DayEntryModal: React.FC<DayEntryModalProps> = ({
                 {existingEntry ? 'Edit Meter Reading' : 'Log Meter Reading'}
               </h3>
               <p className="font-mono text-xs text-neutral-800">
-                Room {roomNumber} &bull; Date: {dateStr}
+                Room {roomNumber} &bull; {new Date(dateStr).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
               </p>
             </div>
           </div>
