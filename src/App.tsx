@@ -56,10 +56,15 @@ export default function App() {
 
   const [toast, setToast] = useState<{ title: string; body: string } | null>(null);
 
+  const myTenantRecord =
+    auth.role === 'tenant' && currentUser?.email
+      ? store.getTenants().find((t) => t.email.toLowerCase() === currentUser.email!.toLowerCase())
+      : undefined;
+
   const effectiveRoomId =
     auth.role === 'admin'
       ? selectedRoomId || 'room-1-1'
-      : auth.activeRoomId;
+      : myTenantRecord?.roomId || '';
 
   useEffect(() => {
     registerForNotifications(auth.role, auth.role === 'tenant' ? effectiveRoomId : undefined);
@@ -99,7 +104,36 @@ export default function App() {
     );
   }
 
-  const room = store.getRoomById(effectiveRoomId) || store.getRooms()[0];
+  if (auth.checkingAdmin) {
+    return (
+      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100">
+        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center">
+          <div className="font-bold text-lg">Checking access...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (auth.role === 'tenant' && !myTenantRecord) {
+    return (
+      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100 p-4">
+        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center max-w-sm w-full space-y-3">
+          <div className="font-serif font-black text-xl">No Room Assigned</div>
+          <p className="text-xs text-neutral-600 dark:text-neutral-400">
+            {currentUser?.email} isn't linked to a room yet. Ask the building admin to add this email when assigning your room.
+          </p>
+          <button
+            onClick={() => signOutUser()}
+            className="w-full bg-black text-white hover:bg-neutral-800 font-bold text-sm py-3 rounded-xl border-2 border-black transition-transform active:scale-95 cursor-pointer"
+          >
+            Log out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const room = auth.role === 'admin' ? store.getRoomById(effectiveRoomId) || store.getRooms()[0] : store.getRoomById(effectiveRoomId);
 
   if (!room) {
     return (
@@ -169,7 +203,7 @@ export default function App() {
     });
   };
 
-  const handleAssignTenant = (tenantData: { name: string; phone: string; moveInDate: string }) => {
+  const handleAssignTenant = (tenantData: { name: string; phone: string; email: string; moveInDate: string }) => {
     store.assignTenantToRoom(room.id, tenantData);
   };
 
@@ -210,7 +244,7 @@ export default function App() {
           onLogout={() => signOutUser()}
           activeRoomNumber={room.roomNumber}
           activeTenantName={tenant?.name}
-          onSelectTenantRoomModal={() => setIsSelectRoomModalOpen(true)}
+
           isMobileOpen={isMobileSidebarOpen}
           onCloseMobile={() => setIsMobileSidebarOpen(false)}
         />
@@ -651,12 +685,6 @@ export default function App() {
         onVacateRoom={tenant ? handleVacateRoom : undefined}
       />
 
-      <SelectRoomModal
-        isOpen={isSelectRoomModalOpen}
-        onClose={() => setIsSelectRoomModalOpen(false)}
-        rooms={store.getRooms()}
-        onSelectRoom={(rId) => auth.setActiveRoomId(rId)}
-      />
 
       <SelectRoomModal
         isOpen={isMoveTenantModalOpen}

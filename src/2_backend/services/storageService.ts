@@ -296,7 +296,7 @@ export class StorageService {
 
   public async assignTenantToRoom(
     roomId: string,
-    tenantData: { name: string; phone: string; moveInDate: string }
+    tenantData: { name: string; phone: string; email: string; moveInDate: string }
   ): Promise<Tenant> {
     const room = this.getRoomById(roomId);
     if (!room) throw new Error('Room not found');
@@ -310,7 +310,7 @@ export class StorageService {
       id: tenantId,
       name: tenantData.name,
       phone: tenantData.phone,
-      email: `${tenantData.name.toLowerCase().replace(/\s+/g, '.')}@voltratower.com`,
+      email: tenantData.email.trim().toLowerCase(),
       roomId,
       floorNumber: room.floorNumber,
       moveInDate: tenantData.moveInDate,

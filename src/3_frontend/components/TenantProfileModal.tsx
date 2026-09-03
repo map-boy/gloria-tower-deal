@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { Room, Tenant } from '../../1_core/domain/types';
 
 interface TenantProfileModalProps {
@@ -6,7 +6,7 @@ interface TenantProfileModalProps {
   onClose: () => void;
   room: Room;
   tenant?: Tenant;
-  onAssignTenant: (tenantData: { name: string; phone: string; moveInDate: string }) => void;
+  onAssignTenant: (tenantData: { name: string; phone: string; email: string; moveInDate: string }) => void;
   onMoveTenant?: () => void;
   onVacateRoom?: () => void;
 }
@@ -22,6 +22,7 @@ export const TenantProfileModal: React.FC<TenantProfileModalProps> = ({
 }) => {
   const [name, setName] = useState(tenant?.name || '');
   const [phone, setPhone] = useState(tenant?.phone || '');
+  const [email, setEmail] = useState(tenant?.email || '');
   const [moveInDate, setMoveInDate] = useState(
     tenant?.moveInDate || new Date().toISOString().split('T')[0]
   );
@@ -30,8 +31,8 @@ export const TenantProfileModal: React.FC<TenantProfileModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-    onAssignTenant({ name, phone, moveInDate });
+    if (!name.trim() || !email.trim()) return;
+    onAssignTenant({ name, phone, email, moveInDate });
     onClose();
   };
 
@@ -41,7 +42,7 @@ export const TenantProfileModal: React.FC<TenantProfileModalProps> = ({
         <div className="flex items-center justify-between pb-4 border-b-2 border-black mb-4">
           <div className="flex items-center gap-2">
             <span className="bg-black text-white p-1.5 rounded font-mono font-bold text-sm">
-              👤
+              ðŸ‘¤
             </span>
             <div>
               <h3 className="font-serif font-black text-xl text-black">
@@ -54,7 +55,7 @@ export const TenantProfileModal: React.FC<TenantProfileModalProps> = ({
             onClick={onClose}
             className="p-1 bg-white hover:bg-neutral-100 border-2 border-black rounded-lg font-mono font-bold text-sm cursor-pointer"
           >
-            ✕
+            âœ•
           </button>
         </div>
 
@@ -69,6 +70,21 @@ export const TenantProfileModal: React.FC<TenantProfileModalProps> = ({
               placeholder="e.g. Sarah Connor"
               className="w-full bg-white text-black text-sm p-3 border-2 border-black rounded-xl focus:outline-none"
             />
+          </div>
+
+          <div>
+            <label className="block font-bold uppercase mb-1">Google Sign-In Email *</label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="tenant@gmail.com"
+              className="w-full bg-white text-black text-sm p-3 border-2 border-black rounded-xl focus:outline-none"
+            />
+            <p className="text-[10px] font-mono text-neutral-600 mt-1">
+              Must match the Google account the tenant will sign in with &mdash; this is what grants them access to this room.
+            </p>
           </div>
 
           <div>
