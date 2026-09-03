@@ -29,6 +29,7 @@ export interface Room {
 export interface UsageEntry {
   id: string;
   roomId: string;
+  tenantId?: string;
   date: string;
   utilityType?: UtilityType;
   unitsUsed: number;

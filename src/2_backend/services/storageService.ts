@@ -1,4 +1,4 @@
-import { doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot, collection, query, orderBy } from 'firebase/firestore';
+﻿import { doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot, collection, query, orderBy } from 'firebase/firestore';
 import { db } from './firebaseConfig';
 import { Room, Tenant, UsageEntry, RateConfig, BuildingSummary, MonthlyRoomStats, UtilityType } from '../../1_core/domain/types';
 import { generateInitialBuildingData } from '../../4_ops/scripts/seedBuilding';
@@ -178,6 +178,24 @@ export class StorageService {
     return this.usageEntries.filter((e) => e.roomId === roomId);
   }
 
+  // Full history for a tenant across room changes and time — survives room
+  // turnover, so a returning tenant's old records stay reachable via their
+  // tenantId even years later.
+  public getTenantUsageHistory(tenantId: string): UsageEntry[] {
+    return this.usageEntries
+      .filter((e) => e.tenantId === tenantId)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  public getUnseenPaymentsCount(): number {
+    const lastSeen = localStorage.getItem('adminPaymentsLastSeen') || '';
+    return this.payments.filter((p) => (p.receivedAt || '') > lastSeen).length;
+  }
+
+  public markPaymentsSeen(): void {
+    localStorage.setItem('adminPaymentsLastSeen', new Date().toISOString());
+  }
+
   public getRoomMonthlyStats(
     roomId: string,
     year: number,
@@ -222,8 +240,10 @@ export class StorageService {
       await setDoc(doc(db, 'usageEntries', entry.id), savedEntry, { merge: true });
     } else {
       const newId = `entry-${entry.roomId}-${entry.date}-${entry.utilityType || 'electricity'}`;
+      const currentTenant = this.getTenantForRoom(entry.roomId);
       savedEntry = {
         ...entry,
+        tenantId: entry.tenantId ?? currentTenant?.id,
         id: newId,
         createdAt: new Date().toISOString(),
       };
