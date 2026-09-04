@@ -1,4 +1,4 @@
-﻿import { doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot, collection, query, where, orderBy } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot, collection, query, where, orderBy } from 'firebase/firestore';
 import { db } from './firebaseConfig';
 import { Room, Tenant, UsageEntry, RateConfig, BuildingSummary, MonthlyRoomStats, UtilityType } from '../../1_core/domain/types';
 import { generateInitialBuildingData } from '../../4_ops/scripts/seedBuilding';
@@ -398,6 +398,16 @@ export class StorageService {
     });
 
     await setDoc(doc(db, 'tenants', tenant.id), updatedTenant);
+    await setDoc(buildingDocRef, { rooms: newRooms, rateConfigs: this.rateConfigs });
+  }
+
+  public async setRoomRateOverrides(
+    roomId: string,
+    overrides: Partial<Record<UtilityType, number>>
+  ): Promise<void> {
+    const newRooms = this.rooms.map((r) =>
+      r.id === roomId ? { ...r, rateOverrides: overrides } : r
+    );
     await setDoc(buildingDocRef, { rooms: newRooms, rateConfigs: this.rateConfigs });
   }
 }

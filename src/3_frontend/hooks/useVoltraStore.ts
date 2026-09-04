@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { storageService } from '../../2_backend/services/storageService';
 import { getCurrentYearMonth } from '../../1_core/utils/dateUtils';
 import { Role } from '../../1_core/domain/types';
@@ -38,6 +38,7 @@ export function useVoltraStore() {
     updateTenantProfile: storageService.updateTenantProfile.bind(storageService),
     moveTenant: storageService.moveTenant.bind(storageService),
     vacateRoom: storageService.vacateRoom.bind(storageService),
+    setRoomRateOverrides: storageService.setRoomRateOverrides.bind(storageService),
     resetToSeedData: storageService.resetToSeedData.bind(storageService),
   };
 }

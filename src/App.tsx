@@ -11,6 +11,7 @@ import { PaymentsLedgerPanel } from './3_frontend/components/PaymentsLedgerPanel
 import { FloorCard } from './3_frontend/components/FloorCard';
 import { RoomGrid } from './3_frontend/components/RoomGrid';
 import { RateConfigModal } from './3_frontend/components/RateConfigModal';
+import { RoomRateOverrideModal } from './3_frontend/components/RoomRateOverrideModal';
 import { TenantProfileModal } from './3_frontend/components/TenantProfileModal';
 import { SelectRoomModal } from './3_frontend/components/SelectRoomModal';
 import { getCurrentYearMonth } from './1_core/utils/dateUtils';
@@ -50,6 +51,7 @@ export default function App() {
   const [selectedDateStr, setSelectedDateStr] = useState<string>('');
   const [selectedExistingEntry, setSelectedExistingEntry] = useState<UsageEntry | undefined>();
   const [isRateModalOpen, setIsRateModalOpen] = useState(false);
+  const [isRoomRateOverrideModalOpen, setIsRoomRateOverrideModalOpen] = useState(false);
   const [isTenantProfileModalOpen, setIsTenantProfileModalOpen] = useState(false);
   const [isSelectRoomModalOpen, setIsSelectRoomModalOpen] = useState(false);
   const [isMoveTenantModalOpen, setIsMoveTenantModalOpen] = useState(false);
@@ -302,6 +304,10 @@ export default function App() {
     store.deleteUsageEntry(entryId);
   };
 
+  const handleSaveRoomRateOverride = (overrides: Partial<Record<'electricity' | 'water' | 'rent', number>>) => {
+    store.setRoomRateOverrides(room.id, overrides);
+  };
+
   const handleSaveRateConfig = (config: {
     scope: 'building' | 'floor';
     floorNumber?: number;
@@ -451,6 +457,7 @@ export default function App() {
                     onOpenCalendar={() => setActiveTab('calendar')}
                     onOpenTenantProfile={() => setIsTenantProfileModalOpen(true)}
                     onLogUsage={() => handleOpenDayModalForDate(monthlyDateStr, monthEntry)}
+                    onOpenRateOverride={() => setIsRoomRateOverrideModalOpen(true)}
                     role={auth.role}
                   />
 
@@ -783,6 +790,14 @@ export default function App() {
         onClose={() => setIsRateModalOpen(false)}
         currentRates={store.getRateConfigs()}
         onSaveRate={handleSaveRateConfig}
+      />
+
+      <RoomRateOverrideModal
+        isOpen={isRoomRateOverrideModalOpen}
+        onClose={() => setIsRoomRateOverrideModalOpen(false)}
+        room={room}
+        rateConfigs={store.getRateConfigs()}
+        onSave={handleSaveRoomRateOverride}
       />
 
       <TenantProfileModal
