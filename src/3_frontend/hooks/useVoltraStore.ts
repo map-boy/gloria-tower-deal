@@ -35,6 +35,7 @@ export function useVoltraStore() {
     deleteUsageEntry: storageService.deleteUsageEntry.bind(storageService),
     setRateConfig: storageService.setRateConfig.bind(storageService),
     assignTenantToRoom: storageService.assignTenantToRoom.bind(storageService),
+    updateTenantProfile: storageService.updateTenantProfile.bind(storageService),
     moveTenant: storageService.moveTenant.bind(storageService),
     vacateRoom: storageService.vacateRoom.bind(storageService),
     resetToSeedData: storageService.resetToSeedData.bind(storageService),

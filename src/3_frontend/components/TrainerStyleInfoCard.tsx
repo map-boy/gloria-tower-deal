@@ -36,7 +36,7 @@ export const TrainerStyleInfoCard: React.FC<TrainerStyleInfoCardProps> = ({
               className="w-full h-full object-cover"
             />
           ) : (
-            <span className="font-mono">⚡</span>
+            <span className="font-mono">&#9889;</span>
           )}
         </div>
         <div className="font-mono text-xs font-bold uppercase tracking-wider text-black bg-neutral-100 border border-black px-2 py-0.5 rounded mt-1">
@@ -57,7 +57,7 @@ export const TrainerStyleInfoCard: React.FC<TrainerStyleInfoCardProps> = ({
                 {tenant ? tenant.name : 'Vacant Room'}
               </h2>
               <p className="font-mono text-xs font-medium text-neutral-800">
-                {tenant ? `${tenant.phone} • Move-in: ${tenant.moveInDate}` : 'No tenant currently assigned'}
+                {tenant ? `${tenant.phone} u2022 Move-in: ${tenant.moveInDate}` : 'No tenant currently assigned'}
               </p>
             </div>
             <div
@@ -93,7 +93,7 @@ export const TrainerStyleInfoCard: React.FC<TrainerStyleInfoCardProps> = ({
         {/* Note / Rate information */}
         <div className="bg-white/80 border-2 border-black rounded-lg p-2.5 px-3 text-xs font-sans text-black">
           <span className="font-bold font-mono uppercase">Applied Rate: </span>
-          ${stats.appliedRate.toFixed(2)} / kWh • Expected Cost: {formatCurrency(stats.expectedCost)}
+          {formatCurrency(stats.appliedRate)} / kWh &#8226; Expected Cost: {formatCurrency(stats.expectedCost)}
         </div>
 
         {/* Action Buttons */}
@@ -102,20 +102,20 @@ export const TrainerStyleInfoCard: React.FC<TrainerStyleInfoCardProps> = ({
             onClick={onLogUsage || onOpenCalendar}
             className="flex-1 sm:flex-none bg-black text-white hover:bg-neutral-800 font-mono font-bold text-xs sm:text-sm px-5 py-2.5 rounded-lg border-2 border-black transition-transform active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
           >
-            <span>⚡ Log Electricity & Payment</span>
+            <span>&#9889; Log Electricity & Payment</span>
           </button>
           <button
             onClick={onOpenCalendar}
             className="flex-1 sm:flex-none bg-white text-black hover:bg-neutral-100 font-mono font-bold text-xs sm:text-sm px-5 py-2.5 rounded-lg border-2 border-black transition-transform active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
           >
-            <span>📅 View Monthly Calendar</span>
+            <span>&#128197; View Monthly Calendar</span>
           </button>
           {role === 'admin' && onOpenTenantProfile && (
             <button
               onClick={onOpenTenantProfile}
               className="bg-neutral-200 text-black hover:bg-neutral-300 font-mono font-bold text-xs sm:text-sm px-4 py-2.5 rounded-lg border-2 border-black transition-transform active:scale-95 cursor-pointer"
             >
-              ⚙ Tenant Config
+&#9881; Tenant Config
             </button>
           )}
         </div>

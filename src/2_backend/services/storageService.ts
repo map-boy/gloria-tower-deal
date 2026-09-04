@@ -41,6 +41,8 @@ export class StorageService {
   private payments: PaymentRecord[] = [];
   private invoices: InvoiceRecord[] = [];
   private tenantsUnsub: (() => void) | null = null;
+  private invoicesUnsub: (() => void) | null = null;
+  private paymentsUnsub: (() => void) | null = null;
   private listeners: Array<() => void> = [];
 
   constructor() {
@@ -72,39 +74,7 @@ export class StorageService {
       this.notifyListeners();
     });
 
-    onSnapshot(paymentsCollectionRef, (snap) => {
-      this.payments = snap.docs.map((d) => {
-        const data = d.data() as any;
-        return {
-          id: d.id,
-          invoiceId: data.invoiceId,
-          provider: data.provider,
-          transactionId: data.transactionId,
-          amount: data.amount,
-          receivedAt: data.receivedAt ? data.receivedAt.toDate?.().toISOString() ?? String(data.receivedAt) : undefined,
-        } as PaymentRecord;
-      });
-      this.notifyListeners();
-    });
 
-    onSnapshot(invoicesCollectionRef, (snap) => {
-      this.invoices = snap.docs.map((d) => {
-        const data = d.data() as any;
-        return {
-          id: d.id,
-          roomId: data.roomId,
-          roomNumber: data.roomNumber,
-          month: data.month,
-          unitsUsed: data.unitsUsed,
-          amount: data.amount,
-          referenceCode: data.referenceCode,
-          status: data.status,
-          paidAt: data.paidAt ? data.paidAt.toDate?.().toISOString() ?? String(data.paidAt) : undefined,
-          amountPaid: data.amountPaid,
-        } as InvoiceRecord;
-      });
-      this.notifyListeners();
-    });
   }
 
   public async resetToSeedData() {
@@ -134,15 +104,18 @@ export class StorageService {
   // their own email (an unfiltered list query would be rejected outright,
   // since Firestore can't prove every doc in it passes the per-tenant rule).
   public setAuthContext(role: 'admin' | 'tenant' | null, email: string | null) {
-    if (this.tenantsUnsub) {
-      this.tenantsUnsub();
-      this.tenantsUnsub = null;
-    }
+    if (this.tenantsUnsub) { this.tenantsUnsub(); this.tenantsUnsub = null; }
+    if (this.invoicesUnsub) { this.invoicesUnsub(); this.invoicesUnsub = null; }
+    if (this.paymentsUnsub) { this.paymentsUnsub(); this.paymentsUnsub = null; }
+
     if (!role || (role === 'tenant' && !email)) {
       this.tenants = [];
+      this.invoices = [];
+      this.payments = [];
       this.notifyListeners();
       return;
     }
+
     const tenantsQuery =
       role === 'admin'
         ? tenantsCollectionRef
@@ -151,6 +124,47 @@ export class StorageService {
       this.tenants = snap.docs.map((d) => d.data() as Tenant);
       this.notifyListeners();
     });
+
+    // Building-wide financial data stays admin-only, both to prevent a
+    // tenant seeing other rooms' invoices/payments, and to avoid syncing
+    // data a tenant screen never needed in the first place.
+    if (role === 'admin') {
+      this.paymentsUnsub = onSnapshot(paymentsCollectionRef, (snap) => {
+        this.payments = snap.docs.map((d) => {
+          const data = d.data() as any;
+          return {
+            id: d.id,
+            invoiceId: data.invoiceId,
+            provider: data.provider,
+            transactionId: data.transactionId,
+            amount: data.amount,
+            receivedAt: data.receivedAt ? data.receivedAt.toDate?.().toISOString() ?? String(data.receivedAt) : undefined,
+          } as PaymentRecord;
+        });
+        this.notifyListeners();
+      });
+      this.invoicesUnsub = onSnapshot(invoicesCollectionRef, (snap) => {
+        this.invoices = snap.docs.map((d) => {
+          const data = d.data() as any;
+          return {
+            id: d.id,
+            roomId: data.roomId,
+            roomNumber: data.roomNumber,
+            month: data.month,
+            unitsUsed: data.unitsUsed,
+            amount: data.amount,
+            referenceCode: data.referenceCode,
+            status: data.status,
+            paidAt: data.paidAt ? data.paidAt.toDate?.().toISOString() ?? String(data.paidAt) : undefined,
+            amountPaid: data.amountPaid,
+          } as InvoiceRecord;
+        });
+        this.notifyListeners();
+      });
+    } else {
+      this.invoices = [];
+      this.payments = [];
+    }
   }
 
   // --- Read Operations (from local cache, kept in sync via onSnapshot) ---
@@ -340,6 +354,19 @@ export class StorageService {
     await setDoc(buildingDocRef, { rooms: newRooms, rateConfigs: this.rateConfigs });
 
     return newTenant;
+  }
+
+  // Edits an existing tenant's own details in place (name/phone/move-in date
+  // only, never email) instead of delete+recreate, so their id -- and every
+  // usage entry stamped with it -- stays intact.
+  public async updateTenantProfile(
+    tenantId: string,
+    updates: { name: string; phone: string; moveInDate: string }
+  ): Promise<void> {
+    const existing = this.tenants.find((t) => t.id === tenantId);
+    if (!existing) throw new Error('Tenant not found');
+    const updated: Tenant = { ...existing, ...updates };
+    await setDoc(doc(db, 'tenants', tenantId), updated);
   }
 
   public async vacateRoom(roomId: string): Promise<void> {

@@ -315,7 +315,15 @@ export default function App() {
   };
 
   const handleAssignTenant = (tenantData: { name: string; phone: string; email: string; moveInDate: string }) => {
-    store.assignTenantToRoom(room.id, tenantData);
+    if (tenant) {
+      store.updateTenantProfile(tenant.id, {
+        name: tenantData.name,
+        phone: tenantData.phone,
+        moveInDate: tenantData.moveInDate,
+      });
+    } else {
+      store.assignTenantToRoom(room.id, tenantData);
+    }
   };
 
   const handleVacateRoom = () => {
@@ -710,59 +718,76 @@ export default function App() {
             <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-6 space-y-6 font-mono text-xs">
               <div className="pb-4 border-b-2 border-black dark:border-neutral-700">
                 <h2 className="text-3xl font-serif font-black text-black dark:text-neutral-100">
-                  System Settings and Controls
+                  {auth.role === 'admin' ? 'System Settings and Controls' : 'Settings'}
                 </h2>
                 <p className="text-neutral-600 dark:text-neutral-400">
-                  Voltra Tower Electricity Rate and Seed Configuration
+                  {auth.role === 'admin' ? 'Voltra Tower Rate and Seed Configuration' : 'Manage your profile'}
                 </p>
               </div>
 
-              <div className="bg-white border-2 border-black rounded-xl p-5 space-y-3 text-black">
-                <h3 className="font-bold text-sm uppercase">
-                  Electricity Tariff Rate Settings
-                </h3>
-                <p>Current Building Default Rate: {formatCurrency(buildingSummary.defaultRatePerUnit)} / kWh</p>
-                <button
-                  onClick={() => setIsRateModalOpen(true)}
-                  className="bg-black text-white hover:bg-neutral-800 font-bold px-4 py-2 rounded-lg border border-black cursor-pointer"
-                >
-                  Configure Rate Tariff
-                </button>
-              </div>
+              {auth.role === 'admin' ? (
+                <>
+                  <div className="bg-white border-2 border-black rounded-xl p-5 space-y-3 text-black">
+                    <h3 className="font-bold text-sm uppercase">
+                      Utility Rate Settings
+                    </h3>
+                    <p>Current Building Default Rate: {formatCurrency(buildingSummary.defaultRatePerUnit)} / kWh</p>
+                    <button
+                      onClick={() => setIsRateModalOpen(true)}
+                      className="bg-black text-white hover:bg-neutral-800 font-bold px-4 py-2 rounded-lg border border-black cursor-pointer"
+                    >
+                      Configure Rate Tariff
+                    </button>
+                  </div>
 
-              <div className="bg-neutral-200 dark:bg-neutral-800 border-2 border-black rounded-xl p-5 space-y-3 text-black dark:text-neutral-100">
-                <h3 className="font-bold text-sm uppercase">
-                  Building Reset
-                </h3>
-                <p>
-                  Resets to an empty 8-floor, 200-room-per-floor building shell with no tenants
-                  and no usage history. Use this only when starting the building over from scratch.
-                </p>
-                <button
-                  onClick={() => {
-                    if (confirm('Reset building? All current tenants and logged entries will be cleared.')) {
-                      store.resetToSeedData();
-                      alert('Building reset to an empty 2,000-room shell.');
-                    }
-                  }}
-                  className="bg-black text-white hover:bg-neutral-800 font-bold px-4 py-2 rounded-lg border border-black cursor-pointer"
-                >
-                  Reset Building Data
-                </button>
-              </div>
+                  <div className="bg-neutral-200 dark:bg-neutral-800 border-2 border-black rounded-xl p-5 space-y-3 text-black dark:text-neutral-100">
+                    <h3 className="font-bold text-sm uppercase">
+                      Building Reset
+                    </h3>
+                    <p>
+                      Resets to an empty 10-floor (basement + ground + 1-8), 200-room-per-floor building
+                      shell with no tenants and no usage history. Use this only when starting over.
+                    </p>
+                    <button
+                      onClick={() => {
+                        if (confirm('Reset building? All current tenants and logged entries will be cleared.')) {
+                          store.resetToSeedData();
+                          alert('Building reset to an empty 2,000-room shell.');
+                        }
+                      }}
+                      className="bg-black text-white hover:bg-neutral-800 font-bold px-4 py-2 rounded-lg border border-black cursor-pointer"
+                    >
+                      Reset Building Data
+                    </button>
+                  </div>
 
-              <div className="bg-neutral-200 dark:bg-neutral-800 border-2 border-black dark:border-neutral-200 rounded-xl p-5 space-y-3 text-black dark:text-neutral-100">
-                <h3 className="font-bold text-sm uppercase">
-                  Display
-                </h3>
-                <p>Current mode: {isDark ? 'Dark' : 'Light'}</p>
-                <button
-                  onClick={toggleDarkMode}
-                  className="bg-black dark:bg-neutral-100 text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-white font-bold px-4 py-2 rounded-lg border border-black dark:border-neutral-200 cursor-pointer"
-                >
-                  Switch to {isDark ? 'Light' : 'Dark'} Mode
-                </button>
-              </div>
+                  <div className="bg-neutral-200 dark:bg-neutral-800 border-2 border-black dark:border-neutral-200 rounded-xl p-5 space-y-3 text-black dark:text-neutral-100">
+                    <h3 className="font-bold text-sm uppercase">
+                      Display
+                    </h3>
+                    <p>Current mode: {isDark ? 'Dark' : 'Light'}</p>
+                    <button
+                      onClick={toggleDarkMode}
+                      className="bg-black dark:bg-neutral-100 text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-white font-bold px-4 py-2 rounded-lg border border-black dark:border-neutral-200 cursor-pointer"
+                    >
+                      Switch to {isDark ? 'Light' : 'Dark'} Mode
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="bg-white border-2 border-black rounded-xl p-5 space-y-3 text-black">
+                  <h3 className="font-bold text-sm uppercase">
+                    Change Profile
+                  </h3>
+                  <p>Update your name, phone number, or move-in date.</p>
+                  <button
+                    onClick={() => setIsTenantProfileModalOpen(true)}
+                    className="bg-black text-white hover:bg-neutral-800 font-bold px-4 py-2 rounded-lg border border-black cursor-pointer"
+                  >
+                    Change Profile
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -791,6 +816,7 @@ export default function App() {
         onClose={() => setIsTenantProfileModalOpen(false)}
         room={room}
         tenant={tenant}
+        lockedEmail={tenant?.email}
         onAssignTenant={handleAssignTenant}
         onMoveTenant={tenant ? handleOpenMoveTenantModal : undefined}
         onVacateRoom={tenant ? handleVacateRoom : undefined}

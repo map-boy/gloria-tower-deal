@@ -13,3 +13,5 @@ public/firebase-messaging-sw.js
 
 *.bak
 diff_check.txt
+
+*.bak-*

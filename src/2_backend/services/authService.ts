@@ -20,9 +20,12 @@ export function subscribeToAuthState(callback: (user: User | null) => void): () 
   return onAuthStateChanged(auth, callback);
 }
 
+const BOOTSTRAP_ADMIN_EMAILS = ['tchubwenge@gmail.com'];
+
 export async function isCurrentUserAdmin(): Promise<boolean> {
   const user = auth.currentUser;
   if (!user) return false;
+  if (user.email && BOOTSTRAP_ADMIN_EMAILS.includes(user.email.toLowerCase())) return true;
   const snap = await getDoc(doc(db, "admins", user.uid));
   return snap.exists();
 }
