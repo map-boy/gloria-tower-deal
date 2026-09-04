@@ -20,7 +20,7 @@ export function subscribeToAuthState(callback: (user: User | null) => void): () 
   return onAuthStateChanged(auth, callback);
 }
 
-const BOOTSTRAP_ADMIN_EMAILS = ['techubwenge@gmail.com'];
+const BOOTSTRAP_ADMIN_EMAILS = ['techubwenge@gmail.com', 'uwimbabazigloria05@gmail.com'];
 
 export async function isCurrentUserAdmin(): Promise<boolean> {
   const user = auth.currentUser;
