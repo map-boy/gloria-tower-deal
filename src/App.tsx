@@ -17,6 +17,8 @@ import { getCurrentYearMonth } from './1_core/utils/dateUtils';
 import { UsageEntry } from './1_core/domain/types';
 import { formatCurrency, formatKwh, getFloorLabel, getStatusBadgeStyle, getStatusLabel } from './1_core/utils/formatters';
 import { registerForNotifications, listenForForegroundMessages } from './2_backend/services/notificationService';
+import { useAccessGate } from './3_frontend/hooks/useAccessGate';
+import { MAX_CONCURRENT_SESSIONS } from './2_backend/services/sessionService';
 import { signInWithGoogle, signOutUser, subscribeToAuthState } from './2_backend/services/authService';
 import type { User } from 'firebase/auth';
 
@@ -25,6 +27,7 @@ export default function App() {
   const auth = useAuthRole();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const access = useAccessGate(currentUser);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
@@ -53,6 +56,7 @@ export default function App() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSelfRegisterPickerOpen, setIsSelfRegisterPickerOpen] = useState(false);
   const [selfRegisterRoomId, setSelfRegisterRoomId] = useState<string | null>(null);
+  const [manualRoomNumber, setManualRoomNumber] = useState('');
 
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -106,6 +110,57 @@ export default function App() {
     );
   }
 
+  if (access.status === 'checking') {
+    return (
+      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100">
+        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center">
+          <div className="font-bold text-lg">Checking system access...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (access.status === 'waiting') {
+    return (
+      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100 p-4">
+        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center max-w-sm w-full space-y-3">
+          <div className="font-serif font-black text-xl">System Busy</div>
+          <p className="text-xs text-neutral-600 dark:text-neutral-400">
+            Too much traffic right now &bull; {access.activeCount}/{MAX_CONCURRENT_SESSIONS} slots in use.
+          </p>
+          <p className="text-xs text-neutral-600 dark:text-neutral-400">
+            You'll be let in automatically the moment a spot opens. Rechecking in {access.secondsLeft}s&hellip;
+          </p>
+          <button
+            onClick={() => signOutUser()}
+            className="w-full bg-white hover:bg-neutral-100 text-black font-bold text-xs py-2.5 rounded-xl border-2 border-black cursor-pointer"
+          >
+            Log out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (access.status === 'idle') {
+    return (
+      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100 p-4">
+        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center max-w-sm w-full space-y-3">
+          <div className="font-serif font-black text-xl">Session Paused</div>
+          <p className="text-xs text-neutral-600 dark:text-neutral-400">
+            You were inactive for a minute, so your spot was freed up for someone else.
+          </p>
+          <button
+            onClick={access.resume}
+            className="w-full bg-black text-white hover:bg-neutral-800 font-bold text-sm py-3 rounded-xl border-2 border-black transition-transform active:scale-95 cursor-pointer"
+          >
+            Resume
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (auth.checkingAdmin) {
     return (
       <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100">
@@ -119,18 +174,41 @@ export default function App() {
   if (auth.role === 'tenant' && !myTenantRecord) {
     const vacantRooms = store.getRooms().filter((r) => !r.tenantId);
     const pickedRoom = selfRegisterRoomId ? store.getRoomById(selfRegisterRoomId) : undefined;
+    const matchedRoom = manualRoomNumber.trim()
+      ? vacantRooms.find((r) => r.roomNumber.toLowerCase() === manualRoomNumber.trim().toLowerCase())
+      : undefined;
     return (
       <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100 p-4">
         <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center max-w-sm w-full space-y-3">
           <div className="font-serif font-black text-xl">No Room Assigned</div>
           <p className="text-xs text-neutral-600 dark:text-neutral-400">
-            {currentUser?.email} isn't linked to a room yet. Pick a vacant room to register yourself as its tenant.
+            {currentUser?.email} isn't linked to a room yet. Type your room number to continue.
           </p>
+
+          <input
+            type="text"
+            value={manualRoomNumber}
+            onChange={(e) => setManualRoomNumber(e.target.value)}
+            placeholder="e.g. F3-014"
+            className="w-full bg-white text-black text-sm p-3 border-2 border-black rounded-xl focus:outline-none text-center font-mono"
+          />
+          {manualRoomNumber.trim() && !matchedRoom && (
+            <p className="text-[10px] font-mono text-red-600">No vacant room found with that number.</p>
+          )}
+
+          <button
+            disabled={!matchedRoom}
+            onClick={() => matchedRoom && setSelfRegisterRoomId(matchedRoom.id)}
+            className="w-full bg-black text-white hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed font-bold text-sm py-3 rounded-xl border-2 border-black transition-transform active:scale-95 cursor-pointer"
+          >
+            Continue
+          </button>
+
           <button
             onClick={() => setIsSelfRegisterPickerOpen(true)}
-            className="w-full bg-black text-white hover:bg-neutral-800 font-bold text-sm py-3 rounded-xl border-2 border-black transition-transform active:scale-95 cursor-pointer"
+            className="w-full bg-white hover:bg-neutral-100 text-black font-bold text-xs py-2.5 rounded-xl border-2 border-black cursor-pointer"
           >
-            Select a Room
+            Or Browse Available Rooms
           </button>
           <button
             onClick={() => signOutUser()}
