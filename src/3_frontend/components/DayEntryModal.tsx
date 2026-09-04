@@ -1,31 +1,53 @@
 import React, { useState, useEffect } from 'react';
-import { UsageEntry } from '../../1_core/domain/types';
+import { Room, RateConfig, UsageEntry, UtilityType } from '../../1_core/domain/types';
 import { formatCurrency } from '../../1_core/utils/formatters';
+import { getEffectiveRate } from '../../1_core/algorithms/balance';
 
 interface DayEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
   dateStr: string;
-  existingEntry?: UsageEntry;
-  appliedRate: number;
-  onSave: (entry: { unitsUsed: number; note: string }) => void;
+  entries: UsageEntry[]; // all entries for this room on this date, one per utility at most
+  room: Room;
+  rateConfigs: RateConfig[];
+  onSave: (entry: { utilityType: UtilityType; unitsUsed: number; note: string }) => void;
   onDelete?: (entryId: string) => void;
   roomNumber: string;
 }
+
+const UTILITY_OPTIONS: { value: UtilityType; label: string }[] = [
+  { value: 'electricity', label: 'Electricity' },
+  { value: 'water', label: 'Water' },
+  { value: 'rent', label: 'Rental' },
+];
 
 export const DayEntryModal: React.FC<DayEntryModalProps> = ({
   isOpen,
   onClose,
   dateStr,
-  existingEntry,
-  appliedRate,
+  entries,
+  room,
+  rateConfigs,
   onSave,
   onDelete,
   roomNumber,
 }) => {
+  const [utilityType, setUtilityType] = useState<UtilityType>('electricity');
   const [unitsUsed, setUnitsUsed] = useState<string>('');
   const [note, setNote] = useState<string>('');
 
+  const existingEntry = entries.find((e) => (e.utilityType || 'electricity') === utilityType);
+
+  // When the modal opens, default to the first utility that already has an
+  // entry for this date (if any), otherwise electricity.
+  useEffect(() => {
+    if (!isOpen) return;
+    const firstLogged = entries[0];
+    setUtilityType((firstLogged?.utilityType as UtilityType) || 'electricity');
+  }, [isOpen, dateStr]);
+
+  // When the selected utility changes, load whatever entry already exists
+  // for that utility on this date (or clear the form if none).
   useEffect(() => {
     if (existingEntry) {
       setUnitsUsed(existingEntry.unitsUsed.toString());
@@ -34,14 +56,19 @@ export const DayEntryModal: React.FC<DayEntryModalProps> = ({
       setUnitsUsed('');
       setNote('');
     }
-  }, [existingEntry, dateStr, isOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [utilityType, dateStr, isOpen]);
 
   if (!isOpen) return null;
+
+  const appliedRate = getEffectiveRate(room, rateConfigs, utilityType);
+  const isMetered = utilityType === 'electricity' || utilityType === 'water';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const kwh = parseFloat(unitsUsed) || 0;
     onSave({
+      utilityType,
       unitsUsed: kwh,
       note,
     });
@@ -60,7 +87,7 @@ export const DayEntryModal: React.FC<DayEntryModalProps> = ({
             </span>
             <div>
               <h3 className="font-serif font-black text-xl text-black">
-                {existingEntry ? 'Edit Meter Reading' : 'Log Meter Reading'}
+                {existingEntry ? 'Edit Entry' : 'Log Entry'}
               </h3>
               <p className="font-mono text-xs text-neutral-800">
                 Room {roomNumber} &bull; {new Date(dateStr).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
@@ -74,16 +101,35 @@ export const DayEntryModal: React.FC<DayEntryModalProps> = ({
             &#10005;
           </button>
         </div>
-
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block font-mono text-xs font-bold uppercase mb-1">
+              Utility Type *
+            </label>
+            <select
+              value={utilityType}
+              onChange={(e) => setUtilityType(e.target.value as UtilityType)}
+              className="w-full bg-white text-black font-mono text-sm p-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black cursor-pointer"
+            >
+              {UTILITY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                  {entries.find((e) => (e.utilityType || 'electricity') === opt.value) ? ' (logged)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="bg-white border-2 border-black rounded-xl p-3 font-mono text-xs flex justify-between items-center">
             <span>Building Rate:</span>
-            <span className="font-bold">{formatCurrency(appliedRate)} / kWh</span>
+            <span className="font-bold">
+              {formatCurrency(appliedRate)}{isMetered ? ' / kWh' : ''}
+            </span>
           </div>
 
           <div>
             <label className="block font-mono text-xs font-bold uppercase mb-1">
-              Electricity Units Used (kWh) *
+              {isMetered ? `${UTILITY_OPTIONS.find((o) => o.value === utilityType)?.label} Units Used (kWh) *` : 'Rent Amount Due *'}
             </label>
             <input
               type="number"
@@ -92,7 +138,7 @@ export const DayEntryModal: React.FC<DayEntryModalProps> = ({
               required
               value={unitsUsed}
               onChange={(e) => setUnitsUsed(e.target.value)}
-              placeholder="e.g. 14.5"
+              placeholder={isMetered ? 'e.g. 14.5' : 'e.g. 1'}
               className="w-full bg-white text-black font-mono text-sm p-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black"
             />
           </div>
@@ -125,9 +171,8 @@ export const DayEntryModal: React.FC<DayEntryModalProps> = ({
               type="submit"
               className="w-full bg-black text-white hover:bg-neutral-800 font-mono font-bold text-sm py-3 rounded-xl border-2 border-black transition-transform active:scale-95 cursor-pointer"
             >
-              Save Reading
+              Save Entry
             </button>
-
             {existingEntry && onDelete && (
               <button
                 type="button"
