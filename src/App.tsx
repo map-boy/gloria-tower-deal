@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useVoltraStore, useAuthRole } from './3_frontend/hooks/useVoltraStore';
 import { useDarkMode } from './3_frontend/hooks/useDarkMode';
 import { Sidebar, ActiveTab } from './3_frontend/components/Sidebar';
@@ -399,6 +399,7 @@ export default function App() {
             onSearchChange={setSearchQuery}
             onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
             resetData={store.resetToSeedData}
+            role={auth.role}
             isDark={isDark}
             onToggleDark={toggleDarkMode}
           />

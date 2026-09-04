@@ -9,6 +9,7 @@ interface TopBarProps {
   resetData: () => void;
   isDark: boolean;
   onToggleDark: () => void;
+  role: 'admin' | 'tenant';
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -20,6 +21,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   resetData,
   isDark,
   onToggleDark,
+  role,
 }) => {
   return (
     <header className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-6 pb-4 border-b-2 border-black dark:border-neutral-700">
@@ -75,17 +77,19 @@ export const TopBar: React.FC<TopBarProps> = ({
           {isDark ? <>&#9788;</> : <>&#9789;</>}
         </button>
 
-        <button
-          onClick={() => {
-            if (confirm('Reset to initial seed dataset (8 floors, 1,600 rooms)?')) {
-              resetData();
-            }
-          }}
-          className="bg-black hover:bg-neutral-800 text-white border-2 border-black p-2 px-3 rounded-lg font-mono font-bold text-xs cursor-pointer whitespace-nowrap"
-          title="Reset Seed Data"
-        >
-          &#8635; Reset Data
-        </button>
+        {role === 'admin' && (
+          <button
+            onClick={() => {
+              if (confirm('Reset to initial seed dataset (10 floors, 2,000 rooms)? All tenants and usage history will be cleared.')) {
+                resetData();
+              }
+            }}
+            className="bg-black hover:bg-neutral-800 text-white border-2 border-black p-2 px-3 rounded-lg font-mono font-bold text-xs cursor-pointer whitespace-nowrap"
+            title="Reset Seed Data"
+          >
+            &#8635; Reset Data
+          </button>
+        )}
 
         <button
           className="bg-white dark:bg-neutral-900 hover:bg-neutral-100 dark:hover:bg-neutral-800 border-2 border-black dark:border-neutral-200 rounded-lg p-2 w-10 h-10 flex items-center justify-center text-black dark:text-neutral-100 font-mono font-bold cursor-pointer"
