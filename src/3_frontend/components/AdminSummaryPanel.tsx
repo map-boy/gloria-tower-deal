@@ -40,7 +40,7 @@ export const AdminSummaryPanel: React.FC<AdminSummaryPanelProps> = ({
               onClick={onViewPayments}
               className="relative bg-white hover:bg-neutral-100 text-black border-2 border-black rounded-xl p-3 px-4 font-mono font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-transform active:scale-95 shadow-none"
             >
-              <span>ðŸ”” Payments</span>
+              <span>&#128276; Payments</span>
               {unseenPaymentsCount > 0 && (
                 <span className="absolute -top-2 -right-2 bg-black text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white">
                   {unseenPaymentsCount > 9 ? '9+' : unseenPaymentsCount}
@@ -52,7 +52,7 @@ export const AdminSummaryPanel: React.FC<AdminSummaryPanelProps> = ({
             onClick={onOpenRateConfig}
             className="bg-white hover:bg-neutral-100 text-black border-2 border-black rounded-xl p-3 px-4 font-mono font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-transform active:scale-95 shadow-none"
           >
-            <span>âš¡ Config Rate: ${summary.defaultRatePerUnit.toFixed(2)}/kWh</span>
+            <span>&#9889; Config Rate: {formatCurrency(summary.defaultRatePerUnit)}/kWh</span>
           </button>
         </div>
       </div>

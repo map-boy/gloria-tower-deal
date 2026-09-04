@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UsageEntry } from '../../1_core/domain/types';
 import { formatCurrency } from '../../1_core/utils/formatters';
 
@@ -78,7 +78,7 @@ export const DayEntryModal: React.FC<DayEntryModalProps> = ({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="bg-white border-2 border-black rounded-xl p-3 font-mono text-xs flex justify-between items-center">
             <span>Building Rate:</span>
-            <span className="font-bold">${appliedRate.toFixed(2)} / kWh</span>
+            <span className="font-bold">{formatCurrency(appliedRate)} / kWh</span>
           </div>
 
           <div>
@@ -99,7 +99,7 @@ export const DayEntryModal: React.FC<DayEntryModalProps> = ({
 
           <div className="bg-neutral-100 border-2 border-black rounded-xl p-3 font-mono text-xs flex justify-between items-center">
             <span>Expected Cost (auto):</span>
-            <span className="font-bold">${expectedCost.toFixed(2)}</span>
+            <span className="font-bold">{formatCurrency(expectedCost)}</span>
           </div>
 
           <p className="text-[10px] font-mono text-neutral-600 leading-snug">

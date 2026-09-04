@@ -1,4 +1,4 @@
-﻿import { signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
+import { signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, googleProvider, db } from "./firebaseConfig";
 
@@ -20,7 +20,7 @@ export function subscribeToAuthState(callback: (user: User | null) => void): () 
   return onAuthStateChanged(auth, callback);
 }
 
-const BOOTSTRAP_ADMIN_EMAILS = ['tchubwenge@gmail.com'];
+const BOOTSTRAP_ADMIN_EMAILS = ['techubwenge@gmail.com'];
 
 export async function isCurrentUserAdmin(): Promise<boolean> {
   const user = auth.currentUser;
