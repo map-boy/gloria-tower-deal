@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { RateConfig, UtilityType, FLOOR_NUMBERS } from '../../1_core/domain/types';
 import { getFloorLabel } from '../../1_core/utils/formatters';
 
@@ -15,9 +15,9 @@ interface RateConfigModalProps {
 }
 
 const UTILITY_LABELS: Record<UtilityType, string> = {
-  electricity: 'Electricity ($/kWh)',
-  water: 'Water ($/m3)',
-  rent: 'Rent ($/month)',
+  electricity: 'Electricity Rate (per kWh)',
+  water: 'Water Rate (per m3)',
+  rent: 'Rent Rate (per month)',
 };
 
 export const RateConfigModal: React.FC<RateConfigModalProps> = ({

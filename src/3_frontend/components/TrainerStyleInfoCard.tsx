@@ -10,6 +10,7 @@ interface TrainerStyleInfoCardProps {
   onOpenCalendar: () => void;
   onOpenTenantProfile?: () => void;
   onLogUsage?: () => void;
+  onOpenRateOverride?: () => void;
   role: 'tenant' | 'admin';
 }
 
@@ -20,6 +21,7 @@ export const TrainerStyleInfoCard: React.FC<TrainerStyleInfoCardProps> = ({
   onOpenCalendar,
   onOpenTenantProfile,
   onLogUsage,
+  onOpenRateOverride,
   role,
 }) => {
   const badge = getStatusBadgeStyle(stats.status);
@@ -57,7 +59,7 @@ export const TrainerStyleInfoCard: React.FC<TrainerStyleInfoCardProps> = ({
                 {tenant ? tenant.name : 'Vacant Room'}
               </h2>
               <p className="font-mono text-xs font-medium text-neutral-800">
-                {tenant ? `${tenant.phone} u2022 Move-in: ${tenant.moveInDate}` : 'No tenant currently assigned'}
+                {tenant ? `${tenant.phone} • Move-in: ${tenant.moveInDate}` : 'No tenant currently assigned'}
               </p>
             </div>
             <div
@@ -116,6 +118,14 @@ export const TrainerStyleInfoCard: React.FC<TrainerStyleInfoCardProps> = ({
               className="bg-neutral-200 text-black hover:bg-neutral-300 font-mono font-bold text-xs sm:text-sm px-4 py-2.5 rounded-lg border-2 border-black transition-transform active:scale-95 cursor-pointer"
             >
 &#9881; Tenant Config
+            </button>
+          )}
+          {role === 'admin' && onOpenRateOverride && (
+            <button
+              onClick={onOpenRateOverride}
+              className="bg-neutral-200 text-black hover:bg-neutral-300 font-mono font-bold text-xs sm:text-sm px-4 py-2.5 rounded-lg border-2 border-black transition-transform active:scale-95 cursor-pointer"
+            >
+&#128176; Rate Override
             </button>
           )}
         </div>
