@@ -798,8 +798,9 @@ export default function App() {
         isOpen={isDayEntryModalOpen}
         onClose={() => setIsDayEntryModalOpen(false)}
         dateStr={selectedDateStr}
-        existingEntry={selectedExistingEntry}
-        appliedRate={roomStats.appliedRate}
+        entries={roomEntries.filter((e) => e.date === selectedDateStr)}
+        room={room}
+        rateConfigs={store.getRateConfigs()}
         onSave={handleSaveUsageEntry}
         onDelete={handleDeleteUsageEntry}
         roomNumber={room.roomNumber}
