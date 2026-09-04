@@ -379,8 +379,6 @@ export default function App() {
                 ? selectedFloorNumber
                   ? `Floor ${selectedFloorNumber} Rooms`
                   : 'Building Floors (1-8)'
-                : activeTab === 'rooms'
-                ? `Room ${room.roomNumber} Details`
                 : activeTab === 'payments'
                 ? 'Building Payments Ledger'
                 : activeTab === 'calendar'
@@ -597,32 +595,6 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'rooms' && (
-            <div className="space-y-6">
-              <TrainerStyleInfoCard
-                room={room}
-                tenant={tenant}
-                stats={roomStats}
-                onOpenCalendar={() => setActiveTab('calendar')}
-                onOpenTenantProfile={() => setIsTenantProfileModalOpen(true)}
-                onLogUsage={() => handleOpenDayModalForDate(monthlyDateStr, monthEntry)}
-                role={auth.role}
-              />
-
-              <MonthlyReadingPanel
-                year={calYear}
-                month={calMonth}
-                onMonthChange={(y, m) => {
-                  setCalYear(y);
-                  setCalMonth(m);
-                }}
-                entry={monthEntry}
-                onOpenEntry={() => handleOpenDayModalForDate(monthlyDateStr, monthEntry)}
-                appliedRate={roomStats.appliedRate}
-              />
-            </div>
-          )}
-
           {activeTab === 'payments' && (
             <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-6 space-y-6">
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pb-4 border-b-2 border-black dark:border-neutral-700">
@@ -834,7 +806,6 @@ export default function App() {
     </div>
   );
 }
-
 
 
 

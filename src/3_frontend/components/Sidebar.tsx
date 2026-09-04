@@ -1,7 +1,7 @@
-﻿import React from 'react';
+import React from 'react';
 import { Role } from '../../1_core/domain/types';
 
-export type ActiveTab = 'home' | 'floors' | 'rooms' | 'payments' | 'calendar' | 'settings';
+export type ActiveTab = 'home' | 'floors' | 'payments' | 'calendar' | 'settings';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -29,7 +29,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems: { id: ActiveTab; label: string; symbol: string; adminOnly?: boolean }[] = [
     { id: 'home', label: 'Home', symbol: '\u2302' },
     { id: 'floors', label: 'Floors (8)', symbol: '\u25A6', adminOnly: true },
-    { id: 'rooms', label: 'Rooms (200/fl)', symbol: '\u229E', adminOnly: true },
     { id: 'payments', label: 'Payments', symbol: '\u00A4', adminOnly: true },
     { id: 'calendar', label: 'Calendar', symbol: '\u25A8', adminOnly: true },
     { id: 'settings', label: 'Settings', symbol: '\u2699' },
