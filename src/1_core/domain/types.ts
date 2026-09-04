@@ -1,4 +1,4 @@
-﻿export type Role = 'tenant' | 'admin';
+export type Role = 'tenant' | 'admin';
 
 export const FLOOR_NUMBERS: number[] = [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8];
 export const ROOMS_PER_FLOOR = 200;
@@ -23,7 +23,7 @@ export interface Room {
   floorNumber: number;
   tenantId?: string;
   tenant?: Tenant;
-  rateOverride?: number;
+  rateOverrides?: Partial<Record<UtilityType, number>>;
 }
 
 export interface UsageEntry {

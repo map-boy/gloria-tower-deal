@@ -1,4 +1,4 @@
-﻿import {
+import {
   UsageEntry,
   RateConfig,
   MonthlyRoomStats,
@@ -18,8 +18,8 @@ export function getEffectiveRate(
   rateConfigs: RateConfig[],
   utilityType: UtilityType = 'electricity'
 ): number {
-  if (room.rateOverride !== undefined) {
-    return room.rateOverride;
+  if (room.rateOverrides?.[utilityType] !== undefined) {
+    return room.rateOverrides[utilityType]!;
   }
   const floorConfig = rateConfigs.find(
     (rc) => rc.scope === 'floor' && rc.floorNumber === room.floorNumber && (rc.utilityType || 'electricity') === utilityType
