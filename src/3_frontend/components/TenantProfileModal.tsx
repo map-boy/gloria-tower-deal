@@ -44,7 +44,7 @@ export const TenantProfileModal: React.FC<TenantProfileModalProps> = ({
         <div className="flex items-center justify-between pb-4 border-b-2 border-black mb-4">
           <div className="flex items-center gap-2">
             <span className="bg-black text-white p-1.5 rounded font-mono font-bold text-sm">
-              ðŸ‘¤
+              &#128100;
             </span>
             <div>
               <h3 className="font-serif font-black text-xl text-black">
@@ -57,7 +57,7 @@ export const TenantProfileModal: React.FC<TenantProfileModalProps> = ({
             onClick={onClose}
             className="p-1 bg-white hover:bg-neutral-100 border-2 border-black rounded-lg font-mono font-bold text-sm cursor-pointer"
           >
-            âœ•
+            &#10005;
           </button>
         </div>
 

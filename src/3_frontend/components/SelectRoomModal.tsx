@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Room } from '../../1_core/domain/types';
+﻿import React, { useState } from 'react';
+import { Room, FLOOR_NUMBERS } from '../../1_core/domain/types';
+import { getFloorLabel } from '../../1_core/utils/formatters';
 
 interface SelectRoomModalProps {
   isOpen: boolean;
@@ -30,7 +31,7 @@ export const SelectRoomModal: React.FC<SelectRoomModalProps> = ({
         <div className="flex items-center justify-between pb-3 border-b-2 border-black mb-4 shrink-0">
           <div className="flex items-center gap-2">
             <span className="bg-black text-white p-1.5 rounded font-mono font-bold text-sm">
-              🚪
+              &#128682;
             </span>
             <h3 className="font-serif font-black text-xl text-black">
               Switch Tenant Room
@@ -40,13 +41,13 @@ export const SelectRoomModal: React.FC<SelectRoomModalProps> = ({
             onClick={onClose}
             className="p-1 bg-white hover:bg-neutral-100 border-2 border-black rounded-lg font-mono font-bold text-sm cursor-pointer"
           >
-            ✕
+            &#10005;
           </button>
         </div>
 
         {/* Floor bar */}
         <div className="flex items-center gap-1 overflow-x-auto pb-2 mb-3 shrink-0 font-mono text-xs">
-          {[1, 2, 3, 4, 5, 6, 7, 8].map((f) => (
+          {FLOOR_NUMBERS.map((f) => (
             <button
               key={f}
               onClick={() => setSelectedFloor(f)}
@@ -56,7 +57,7 @@ export const SelectRoomModal: React.FC<SelectRoomModalProps> = ({
                   : 'bg-white text-black border-black hover:bg-neutral-100'
               }`}
             >
-              Floor {f}
+              {getFloorLabel(f)}
             </button>
           ))}
         </div>

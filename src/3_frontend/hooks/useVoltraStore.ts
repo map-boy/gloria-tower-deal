@@ -68,6 +68,10 @@ export function useAuthRole() {
     return unsub;
   }, []);
 
+  useEffect(() => {
+    if (checkingAdmin) return;
+    storageService.setAuthContext(firebaseUser ? role : null, firebaseUser?.email || null);
+  }, [role, firebaseUser, checkingAdmin]);
   const setTenantRoom = (roomId: string) => {
     setActiveRoomId(roomId);
   };

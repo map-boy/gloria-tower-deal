@@ -1,4 +1,4 @@
-﻿import { doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot, collection, query, orderBy } from 'firebase/firestore';
+﻿import { doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot, collection, query, where, orderBy } from 'firebase/firestore';
 import { db } from './firebaseConfig';
 import { Room, Tenant, UsageEntry, RateConfig, BuildingSummary, MonthlyRoomStats, UtilityType } from '../../1_core/domain/types';
 import { generateInitialBuildingData } from '../../4_ops/scripts/seedBuilding';
@@ -40,6 +40,7 @@ export class StorageService {
   private rateConfigs: RateConfig[] = [];
   private payments: PaymentRecord[] = [];
   private invoices: InvoiceRecord[] = [];
+  private tenantsUnsub: (() => void) | null = null;
   private listeners: Array<() => void> = [];
 
   constructor() {
@@ -64,11 +65,6 @@ export class StorageService {
         this.rateConfigs = data.rateConfigs || [];
         this.notifyListeners();
       }
-    });
-
-    onSnapshot(tenantsCollectionRef, (snap) => {
-      this.tenants = snap.docs.map((d) => d.data() as Tenant);
-      this.notifyListeners();
     });
 
     onSnapshot(usageEntriesCollectionRef, (snap) => {
@@ -133,6 +129,30 @@ export class StorageService {
     this.listeners.forEach((listener) => listener());
   }
 
+  // Subscribes to tenants scoped to what this signed-in user is actually
+  // allowed to list: admins get everyone, tenants get a query filtered to
+  // their own email (an unfiltered list query would be rejected outright,
+  // since Firestore can't prove every doc in it passes the per-tenant rule).
+  public setAuthContext(role: 'admin' | 'tenant' | null, email: string | null) {
+    if (this.tenantsUnsub) {
+      this.tenantsUnsub();
+      this.tenantsUnsub = null;
+    }
+    if (!role || (role === 'tenant' && !email)) {
+      this.tenants = [];
+      this.notifyListeners();
+      return;
+    }
+    const tenantsQuery =
+      role === 'admin'
+        ? tenantsCollectionRef
+        : query(tenantsCollectionRef, where('email', '==', email!.toLowerCase()));
+    this.tenantsUnsub = onSnapshot(tenantsQuery, (snap) => {
+      this.tenants = snap.docs.map((d) => d.data() as Tenant);
+      this.notifyListeners();
+    });
+  }
+
   // --- Read Operations (from local cache, kept in sync via onSnapshot) ---
   public getRooms(): Room[] {
     return [...this.rooms];
@@ -167,9 +187,7 @@ export class StorageService {
   }
 
   public getTenantForRoom(roomId: string): Tenant | undefined {
-    const room = this.getRoomById(roomId);
-    if (!room || !room.tenantId) return undefined;
-    return this.getTenantById(room.tenantId);
+    return this.tenants.find((t) => t.roomId === roomId);
   }
 
   public getRoomUsageEntries(roomId: string): UsageEntry[] {
