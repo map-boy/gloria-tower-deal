@@ -15,13 +15,14 @@ import { RoomRateOverrideModal } from './3_frontend/components/RoomRateOverrideM
 import { TenantProfileModal } from './3_frontend/components/TenantProfileModal';
 import { SelectRoomModal } from './3_frontend/components/SelectRoomModal';
 import { getCurrentYearMonth } from './1_core/utils/dateUtils';
-import { UsageEntry } from './1_core/domain/types';
+import { UsageEntry, UtilityType } from './1_core/domain/types';
 import { formatCurrency, formatKwh, getFloorLabel, getStatusBadgeStyle, getStatusLabel } from './1_core/utils/formatters';
 import { registerForNotifications, listenForForegroundMessages } from './2_backend/services/notificationService';
 import { useAccessGate } from './3_frontend/hooks/useAccessGate';
 import { MAX_CONCURRENT_SESSIONS } from './2_backend/services/sessionService';
 import { signInWithGoogle, signOutUser, subscribeToAuthState } from './2_backend/services/authService';
 import type { User } from 'firebase/auth';
+import { selfRegisterTenant } from './2_backend/services/tenantRegistrationService';
 
 export default function App() {
   const store = useVoltraStore();
@@ -237,8 +238,14 @@ export default function App() {
             room={pickedRoom}
             lockedEmail={currentUser?.email || ''}
             onAssignTenant={(tenantData) => {
-              store.assignTenantToRoom(pickedRoom.id, tenantData);
-              setSelfRegisterRoomId(null);
+              selfRegisterTenant({
+                roomId: pickedRoom.id,
+                name: tenantData.name,
+                phone: tenantData.phone,
+                moveInDate: tenantData.moveInDate,
+              })
+                .then(() => setSelfRegisterRoomId(null))
+                .catch((e: any) => alert(e.message || 'Failed to register — the room may already be taken.'));
             }}
           />
         )}
@@ -288,13 +295,17 @@ export default function App() {
     setIsDayEntryModalOpen(true);
   };
 
-  const handleSaveUsageEntry = (entryData: { unitsUsed: number; note: string }) => {
+  const handleSaveUsageEntry = (entryData: { utilityType: UtilityType; unitsUsed: number; note: string }) => {
+    const existingForUtility = roomEntries.find(
+      (e) => e.date === selectedDateStr && (e.utilityType || 'electricity') === entryData.utilityType
+    );
     store.saveUsageEntry({
-      id: selectedExistingEntry?.id,
+      id: existingForUtility?.id,
       roomId: room.id,
       date: selectedDateStr,
+      utilityType: entryData.utilityType,
       unitsUsed: entryData.unitsUsed,
-      amountPaid: selectedExistingEntry?.amountPaid ?? 0,
+      amountPaid: existingForUtility?.amountPaid ?? 0,
       note: entryData.note,
       createdBy: auth.role === 'admin' ? 'Admin' : tenant ? tenant.name : 'Tenant',
     });

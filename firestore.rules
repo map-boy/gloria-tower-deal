@@ -13,6 +13,11 @@ service cloud.firestore {
     function isOwnEmail(email) {
       return isSignedIn() && 'email' in request.auth.token && email == request.auth.token.email.lower();
     }
+    function isTenantForRoom(roomId) {
+      return isSignedIn() && 'email' in request.auth.token &&
+        exists(/databases/$(database)/documents/tenants/$(request.auth.token.email.lower())) &&
+        get(/databases/$(database)/documents/tenants/$(request.auth.token.email.lower())).data.roomId == roomId;
+    }
 
     match /voltraTower/building {
       allow read: if isSignedIn();
@@ -21,15 +26,17 @@ service cloud.firestore {
 
     match /tenants/{tenantId} {
       allow read: if isAdmin() || isOwnEmail(resource.data.email);
-      allow create: if isAdmin() || isOwnEmail(request.resource.data.email);
+      allow create: if isAdmin();
       allow update: if isAdmin() ||
-        (isOwnEmail(resource.data.email) && request.resource.data.email == resource.data.email);
+        (isOwnEmail(resource.data.email) &&
+         request.resource.data.email == resource.data.email &&
+         request.resource.data.roomId == resource.data.roomId);
       allow delete: if isAdmin();
     }
 
     match /usageEntries/{entryId} {
       allow read: if isSignedIn();
-      allow create: if isAdmin() &&
+      allow create: if (isAdmin() || isTenantForRoom(request.resource.data.roomId)) &&
         (!("amountPaid" in request.resource.data) || request.resource.data.amountPaid == 0);
       allow update: if isAdmin() &&
         request.resource.data.amountPaid == resource.data.amountPaid;

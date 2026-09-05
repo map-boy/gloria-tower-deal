@@ -1,4 +1,4 @@
-﻿const { onDocumentWritten } = require("firebase-functions/v2/firestore");
+const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onRequest, onCall } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
@@ -83,7 +83,8 @@ async function generateInvoicesForMonth(year, month) {
     const floorRate = (rateConfigs.find(
       (r) => r.scope === "floor" && r.floorNumber === room.floorNumber && (r.utilityType || "electricity") === utilityType
     ) || {}).ratePerUnit;
-    return room.rateOverride ?? floorRate ?? buildingRate;
+    const roomOverride = room.rateOverrides && room.rateOverrides[utilityType];
+    return roomOverride ?? floorRate ?? buildingRate;
   }
 
   const UTILITY_CODES = { electricity: "ELEC", water: "WATR", rent: "RENT" };
@@ -350,3 +351,43 @@ exports.iremboPaymentWebhook = onRequest(
     res.status(200).send("OK");
   }
 );
+
+// --- Self-registration: tenant claims a vacant room by email ---
+exports.selfRegisterTenant = onCall(async (request) => {
+  if (!request.auth || !request.auth.token.email) {
+    throw new Error("Must be signed in with an email");
+  }
+  const email = request.auth.token.email.toLowerCase();
+  const { roomId, name, phone, moveInDate } = request.data || {};
+  if (!roomId || !name) throw new Error("roomId and name required");
+
+  const buildingRef = db.doc("voltraTower/building");
+  const tenantRef = db.doc("tenants/" + email);
+
+  await db.runTransaction(async (tx) => {
+    const buildingSnap = await tx.get(buildingRef);
+    if (!buildingSnap.exists) throw new Error("Building not initialized");
+    const rooms = buildingSnap.data().rooms || [];
+    const roomIdx = rooms.findIndex((r) => r.id === roomId);
+    if (roomIdx === -1) throw new Error("Room not found");
+    if (rooms[roomIdx].tenantId) throw new Error("Room already occupied");
+
+    const existingTenant = await tx.get(tenantRef);
+    if (existingTenant.exists) throw new Error("You are already registered to a room");
+
+    rooms[roomIdx] = { ...rooms[roomIdx], tenantId: email };
+    tx.set(tenantRef, {
+      id: email,
+      name,
+      phone: phone || "",
+      email,
+      roomId,
+      floorNumber: rooms[roomIdx].floorNumber,
+      moveInDate: moveInDate || new Date().toISOString().split("T")[0],
+      role: "tenant",
+    });
+    tx.update(buildingRef, { rooms });
+  });
+
+  return { ok: true };
+});

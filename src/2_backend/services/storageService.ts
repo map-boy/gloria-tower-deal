@@ -208,7 +208,7 @@ export class StorageService {
     return this.usageEntries.filter((e) => e.roomId === roomId);
   }
 
-  // Full history for a tenant across room changes and time — survives room
+  // Full history for a tenant across room changes and time â€” survives room
   // turnover, so a returning tenant's old records stay reachable via their
   // tenantId even years later.
   public getTenantUsageHistory(tenantId: string): UsageEntry[] {
@@ -336,7 +336,7 @@ export class StorageService {
     const existingInRoom = this.tenants.filter((t) => t.roomId === roomId);
     await Promise.all(existingInRoom.map((t) => deleteDoc(doc(db, 'tenants', t.id))));
 
-    const tenantId = `tenant-custom-${Date.now()}`;
+    const tenantId = tenantData.email.trim().toLowerCase();
     const newTenant: Tenant = {
       id: tenantId,
       name: tenantData.name,
