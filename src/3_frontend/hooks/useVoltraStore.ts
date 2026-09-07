@@ -21,6 +21,7 @@ export function useVoltraStore() {
     getSubmissionById: (id: string) => storageService.getSubmissionById(id),
     createSubmission: storageService.createSubmission.bind(storageService),
     reviewSubmission: storageService.reviewSubmission.bind(storageService),
+    deleteSubmission: storageService.deleteSubmission.bind(storageService),
     updateRoom: storageService.updateRoom.bind(storageService),
     freeRoom: storageService.freeRoom.bind(storageService),
     uploadPaymentScreenshot: storageService.uploadPaymentScreenshot.bind(storageService),

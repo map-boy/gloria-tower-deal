@@ -2,55 +2,52 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() { return request.auth != null; }
+
     function isBootstrapAdmin() {
-      return isSignedIn() && request.auth.token.email in ['techubwenge@gmail.com', 'uwimbabazigloria05@gmail.com'];
+      return isSignedIn() && 'email' in request.auth.token &&
+        request.auth.token.email.lower() in ['techubwenge@gmail.com', 'uwimbabazigloria05@gmail.com'];
     }
+
+    // Admin has full rights everywhere below: read anything, edit anything.
     function isAdmin() {
       return isSignedIn() &&
         (isBootstrapAdmin() ||
          exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
     }
-    function isOwnEmail(email) {
-      return isSignedIn() && 'email' in request.auth.token && email == request.auth.token.email.lower();
-    }
-    function isTenantForRoom(roomId) {
-      return isSignedIn() && 'email' in request.auth.token &&
-        exists(/databases/$(database)/documents/tenants/$(request.auth.token.email.lower())) &&
-        get(/databases/$(database)/documents/tenants/$(request.auth.token.email.lower())).data.roomId == roomId;
+
+    function ownsRoom(roomId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/rooms/$(roomId)) &&
+        get(/databases/$(database)/documents/rooms/$(roomId)).data.tenantUid == request.auth.uid;
     }
 
-    match /voltraTower/building {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+    // Rooms are created by the claimRoom callable (admin SDK), never by a
+    // client write -- that is what keeps two tenants off one room number.
+    match /rooms/{roomId} {
+      allow get: if isAdmin() || (isSignedIn() && resource.data.tenantUid == request.auth.uid);
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
-    match /tenants/{tenantId} {
-      allow read: if isAdmin() || isOwnEmail(resource.data.email);
-      allow create: if isAdmin();
-      allow update: if isAdmin() ||
-        (isOwnEmail(resource.data.email) &&
-         request.resource.data.email == resource.data.email &&
-         request.resource.data.roomId == resource.data.roomId);
-      allow delete: if isAdmin();
+    // A tenant reads and writes only their own submissions. Confirming a
+    // payment is admin-only -- a tenant can report, never approve.
+    match /submissions/{submissionId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.tenantUid == request.auth.uid);
+      allow create: if isAdmin() ||
+        (isSignedIn() &&
+         request.resource.data.tenantUid == request.auth.uid &&
+         ownsRoom(request.resource.data.roomId) &&
+         request.resource.data.status == 'pending' &&
+         !('amountConfirmed' in request.resource.data) &&
+         !('reviewedBy' in request.resource.data) &&
+         request.resource.data.amountReported is number &&
+         request.resource.data.amountReported >= 0);
+      allow update, delete: if isAdmin();
     }
 
-    match /usageEntries/{entryId} {
-      allow read: if isSignedIn();
-      allow create: if (isAdmin() || isTenantForRoom(request.resource.data.roomId)) &&
-        (!("amountPaid" in request.resource.data) || request.resource.data.amountPaid == 0);
-      allow update: if isAdmin() &&
-        request.resource.data.amountPaid == resource.data.amountPaid;
-      allow delete: if isAdmin();
-    }
-
-    match /invoices/{invoiceId} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
-    }
-
-    match /payments/{paymentId} {
-      allow read: if isAdmin();
-      allow write: if false;
+    // Written by the onSubmissionCreated function; only admins ever see them.
+    match /notifications/{notificationId} {
+      allow read, write: if isAdmin();
     }
 
     match /deviceTokens/{tokenId} {
@@ -61,12 +58,6 @@ service cloud.firestore {
     match /admins/{uid} {
       allow read: if isSignedIn();
       allow write: if false;
-    }
-
-    match /activeSessions/{uid} {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn() && request.auth.uid == uid;
-      allow delete: if isSignedIn() && request.auth.uid == uid;
     }
 
     match /{document=**} {

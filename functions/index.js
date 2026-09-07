@@ -1,393 +1,186 @@
-const { onDocumentWritten } = require("firebase-functions/v2/firestore");
-const { onRequest, onCall } = require("firebase-functions/v2/https");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getStorage } = require("firebase-admin/storage");
 const { getMessaging } = require("firebase-admin/messaging");
-const crypto = require("crypto");
 
 initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
 
-const IREMBO_WEBHOOK_SECRET = defineSecret("IREMBO_WEBHOOK_SECRET");
-const IREMBO_API_KEY = defineSecret("IREMBO_API_KEY");
+const BOOTSTRAP_ADMIN_EMAILS = [
+  "techubwenge@gmail.com",
+  "uwimbabazigloria05@gmail.com",
+];
 
-// --- Notification on payment recorded ---
-exports.notifyOnPayment = onDocumentWritten("usageEntries/{entryId}", async (event) => {
-  const after = event.data && event.data.after ? event.data.after.data() : null;
-  if (!after) return;
-  const before = event.data && event.data.before ? event.data.before.data() : null;
-  const isNewPayment = !before || before.amountPaid !== after.amountPaid;
-  if (!isNewPayment || !after.amountPaid || after.amountPaid <= 0) return;
+// Rooms are never hard-coded. A room doc is born the moment a tenant types
+// its number on the door, so the building can be any shape and grow freely.
+function slugifyRoomNumber(roomNumber) {
+  return String(roomNumber)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+}
 
-  const buildingSnap = await db.doc("voltraTower/building").get();
-  const rooms = buildingSnap.exists ? buildingSnap.data().rooms || [] : [];
-  const room = rooms.find((r) => r.id === after.roomId);
-  const roomNumber = room ? room.roomNumber : after.roomId;
+async function isAdmin(auth) {
+  if (!auth) return false;
+  const email = auth.token && auth.token.email ? auth.token.email.toLowerCase() : null;
+  if (email && BOOTSTRAP_ADMIN_EMAILS.includes(email)) return true;
+  const snap = await db.doc(`admins/${auth.uid}`).get();
+  return snap.exists;
+}
 
-  const tokensSnap = await db.collection("deviceTokens").get();
-  const adminTokens = [];
-  const tenantTokens = [];
-  tokensSnap.forEach((docSnap) => {
-    const t = docSnap.data();
-    if (t.role === "admin") adminTokens.push(t.token);
-    if (t.role === "tenant" && t.roomId === after.roomId) tenantTokens.push(t.token);
+// --- Tenant enters a room: number on the door + their name, nothing else ---
+// No admin approval step. The first anonymous uid to claim a room number owns
+// it; anyone else typing the same number is told to talk to the admin.
+exports.claimRoom = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Sign-in required");
+  }
+  const uid = request.auth.uid;
+  const { roomNumber, tenantName, tenantPhone, hasElectricity } = request.data || {};
+
+  if (!roomNumber || !String(roomNumber).trim()) {
+    throw new HttpsError("invalid-argument", "Room number is required");
+  }
+  if (!tenantName || !String(tenantName).trim()) {
+    throw new HttpsError("invalid-argument", "Your name is required");
+  }
+
+  const roomId = slugifyRoomNumber(roomNumber);
+  if (!roomId) {
+    throw new HttpsError("invalid-argument", "Room number is not usable");
+  }
+
+  const roomRef = db.doc(`rooms/${roomId}`);
+  const now = new Date().toISOString();
+
+  const result = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(roomRef);
+    const fields = {
+      roomNumber: String(roomNumber).trim(),
+      tenantName: String(tenantName).trim(),
+      tenantPhone: tenantPhone ? String(tenantPhone).trim() : "",
+      hasElectricity: hasElectricity !== false,
+      updatedAt: now,
+    };
+
+    if (!snap.exists) {
+      tx.set(roomRef, {
+        id: roomId,
+        ...fields,
+        tenantUid: uid,
+        active: true,
+        createdAt: now,
+      });
+      return { ok: true, roomId };
+    }
+
+    const room = snap.data();
+
+    // Someone else is living in this room number right now.
+    if (room.active && room.tenantUid && room.tenantUid !== uid) {
+      return { ok: false, roomId, reason: "taken_by_other" };
+    }
+
+    // Same tenant coming back (new phone, cleared browser is a new uid but
+    // an admin-freed room is claimable again) -- refresh their details.
+    tx.update(roomRef, { ...fields, tenantUid: uid, active: true });
+    return { ok: true, roomId };
   });
-  const allTokens = [...adminTokens, ...tenantTokens];
-  if (allTokens.length === 0) return;
+
+  return result;
+});
+
+// --- Admin gets a bell + a push the moment a tenant submits ---
+exports.onSubmissionCreated = onDocumentCreated("submissions/{submissionId}", async (event) => {
+  const submission = event.data ? event.data.data() : null;
+  if (!submission) return;
+
+  await db.doc(`notifications/${event.params.submissionId}`).set({
+    id: event.params.submissionId,
+    type: "submission_created",
+    roomId: submission.roomId,
+    roomNumber: submission.roomNumber,
+    tenantName: submission.tenantName,
+    submissionId: event.params.submissionId,
+    amountReported: submission.amountReported || 0,
+    cashPowerReading: submission.cashPowerReading || "",
+    read: false,
+    createdAt: submission.createdAt || new Date().toISOString(),
+  });
+
+  const tokensSnap = await db.collection("deviceTokens").where("role", "==", "admin").get();
+  const tokens = tokensSnap.docs.map((d) => d.data().token).filter(Boolean);
+  if (tokens.length === 0) return;
+
+  const reading = submission.cashPowerReading
+    ? ` Cash power reading: ${submission.cashPowerReading}.`
+    : "";
 
   try {
     await messaging.sendEachForMulticast({
       notification: {
-        title: "Payment Logged",
-        body: `Room ${roomNumber}: ${after.unitsUsed} kWh, ${after.amountPaid} paid.`,
+        title: `Room ${submission.roomNumber} submitted a payment`,
+        body: `${submission.tenantName} reports ${submission.amountReported} RWF paid.${reading}`,
       },
-      tokens: allTokens,
+      tokens,
     });
   } catch (e) {
-    console.error("Failed to send notification", e);
+    console.error("Failed to send admin notification", e);
   }
 });
 
-// --- Monthly invoice generation ---
-async function generateInvoicesForMonth(year, month) {
-  const yearMonth = `${year}-${String(month).padStart(2, "0")}`;
-
-  const buildingSnap = await db.doc("voltraTower/building").get();
-  if (!buildingSnap.exists) return { created: 0 };
-  const rooms = buildingSnap.data().rooms || [];
-  const rateConfigs = buildingSnap.data().rateConfigs || [];
-
-  const usageSnap = await db
-    .collection("usageEntries")
-    .where("date", ">=", `${yearMonth}-01`)
-    .where("date", "<=", `${yearMonth}-31`)
+// --- Free-tier housekeeping: photos die at 14 days, the record lives on ---
+// The submission doc keeps what was paid and what the meter read, so the
+// admin still has the history -- only the image bytes go away.
+async function deleteExpiredScreenshots() {
+  const nowIso = new Date().toISOString();
+  const snap = await db
+    .collection("submissions")
+    .where("screenshotExpiresAt", "<=", nowIso)
+    .limit(400)
     .get();
 
-  // Sum usage-based units (electricity, water) per room, per utility type.
-  const unitsByRoomAndUtility = { electricity: {}, water: {} };
-  usageSnap.forEach((docSnap) => {
-    const e = docSnap.data();
-    const utilityType = e.utilityType || "electricity";
-    if (utilityType !== "electricity" && utilityType !== "water") return;
-    unitsByRoomAndUtility[utilityType][e.roomId] =
-      (unitsByRoomAndUtility[utilityType][e.roomId] || 0) + (e.unitsUsed || 0);
-  });
+  const bucket = getStorage().bucket();
+  let deleted = 0;
 
-  function getRate(utilityType, room) {
-    const buildingRate = (rateConfigs.find(
-      (r) => r.scope === "building" && (r.utilityType || "electricity") === utilityType
-    ) || {}).ratePerUnit ?? (utilityType === "electricity" ? 350 : undefined);
-    const floorRate = (rateConfigs.find(
-      (r) => r.scope === "floor" && r.floorNumber === room.floorNumber && (r.utilityType || "electricity") === utilityType
-    ) || {}).ratePerUnit;
-    const roomOverride = room.rateOverrides && room.rateOverrides[utilityType];
-    return roomOverride ?? floorRate ?? buildingRate;
-  }
-
-  const UTILITY_CODES = { electricity: "ELEC", water: "WATR", rent: "RENT" };
-
-  let created = 0;
-  const batchPromises = [];
-
-  for (const room of rooms) {
-    if (!room.tenantId) continue;
-
-    for (const utilityType of ["electricity", "water", "rent"]) {
-      let units;
-      if (utilityType === "rent") {
-        // Rent is a fixed monthly charge, not usage-based.
-        units = 1;
-      } else {
-        units = unitsByRoomAndUtility[utilityType][room.id] || 0;
-        if (units <= 0) continue;
-      }
-
-      const rate = getRate(utilityType, room);
-      if (!rate) continue; // no rate configured for this utility â€” skip instead of invoicing $0
-
-      const amount = Math.round(units * rate * 100) / 100;
-
-      const referenceCode = `VT-${room.roomNumber.replace(/\s+/g, "")}-${yearMonth}-${UTILITY_CODES[utilityType]}`.toUpperCase();
-      const invoiceId = `invoice-${room.id}-${yearMonth}-${utilityType}`;
-
-      const existing = await db.doc(`invoices/${invoiceId}`).get();
-      if (existing.exists) continue;
-
-      batchPromises.push(
-        db.doc(`invoices/${invoiceId}`).set({
-          roomId: room.id,
-          roomNumber: room.roomNumber,
-          month: yearMonth,
-          utilityType,
-          unitsUsed: units,
-          amount,
-          amountPaid: 0,
-          referenceCode,
-          status: "pending",
-          createdAt: FieldValue.serverTimestamp(),
-        })
-      );
-      created++;
+  for (const docSnap of snap.docs) {
+    const data = docSnap.data();
+    if (data.screenshotDeleted || !data.screenshotPath) continue;
+    try {
+      await bucket.file(data.screenshotPath).delete({ ignoreNotFound: true });
+    } catch (e) {
+      console.error(`Failed to delete ${data.screenshotPath}`, e);
+      continue;
     }
+    await docSnap.ref.update({
+      screenshotDeleted: true,
+      screenshotPath: FieldValue.delete(),
+      screenshotExpiresAt: FieldValue.delete(),
+    });
+    deleted++;
   }
 
-  await Promise.all(batchPromises);
-  return { created };
+  return { deleted };
 }
 
-exports.generateMonthlyInvoices = onSchedule(
-  { schedule: "0 2 1 * *", timeZone: "Africa/Kigali" },
+exports.cleanupExpiredScreenshots = onSchedule(
+  { schedule: "0 3 * * *", timeZone: "Africa/Kigali" },
   async () => {
-    const now = new Date();
-    const prevMonth = now.getMonth() === 0 ? 12 : now.getMonth();
-    const prevYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
-    const result = await generateInvoicesForMonth(prevYear, prevMonth);
-    console.log(`Generated ${result.created} invoices for ${prevYear}-${prevMonth}`);
+    const { deleted } = await deleteExpiredScreenshots();
+    console.log(`Deleted ${deleted} expired payment screenshots`);
   }
 );
 
-exports.generateInvoicesNow = onCall(async (request) => {
-  if (!request.auth) {
-    throw new Error("Must be signed in");
+// Manual trigger, so the cleanup still works on a project where Cloud
+// Scheduler has not been enabled.
+exports.cleanupScreenshotsNow = onCall(async (request) => {
+  if (!(await isAdmin(request.auth))) {
+    throw new HttpsError("permission-denied", "Admin only");
   }
-  const adminDoc = await db.doc(`admins/${request.auth.uid}`).get();
-  if (!adminDoc.exists) {
-    throw new Error("Admin only");
-  }
-  const { year, month } = request.data || {};
-  const now = new Date();
-  const y = year || now.getFullYear();
-  const m = month || now.getMonth() + 1;
-  return generateInvoicesForMonth(y, m);
-});
-
-// --- Irembo Pay: initiate push prompt ---
-// PLACEHOLDER: replace the fetch() call below with the real Irembo Pay
-// merchant API endpoint, auth scheme, and payload once credentials exist.
-exports.initiateIremboPayment = onCall(
-  { secrets: [IREMBO_API_KEY] },
-  async (request) => {
-    if (!request.auth) {
-      throw new Error("Must be signed in");
-    }
-    const { invoiceId, phoneNumber } = request.data || {};
-    if (!invoiceId || !phoneNumber) {
-      throw new Error("invoiceId and phoneNumber required");
-    }
-
-    const invoiceRef = db.doc(`invoices/${invoiceId}`);
-    const invoiceSnap = await invoiceRef.get();
-    if (!invoiceSnap.exists) {
-      throw new Error("Invoice not found");
-    }
-    const invoice = invoiceSnap.data();
-    if (invoice.status === "paid") {
-      throw new Error("Invoice already paid");
-    }
-
-    // PLACEHOLDER call Ã¢â‚¬â€ replace with real Irembo Pay API request.
-
-    await invoiceRef.update({
-      status: "push_initiated",
-      pushInitiatedAt: FieldValue.serverTimestamp(),
-      pushPhoneNumber: phoneNumber,
-    });
-
-    return { ok: true, message: "Payment prompt sent to phone (placeholder)" };
-  }
-);
-
-// --- Irembo/BK payment webhook ---
-// PLACEHOLDER: signature verification below is not real yet.
-// Replace verifySignature() once real Irembo/BK merchant credentials
-// and their actual signing scheme are available. Do NOT deploy to
-// production before that is implemented.
-function verifySignature(rawBody, signatureHeader, secret) {
-  if (!secret) return false;
-  if (!signatureHeader) return false;
-  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
-  try {
-    return crypto.timingSafeEqual(
-      Buffer.from(expected, "utf8"),
-      Buffer.from(signatureHeader, "utf8")
-    );
-  } catch (e) {
-    return false;
-  }
-}
-
-exports.iremboPaymentWebhook = onRequest(
-  { secrets: [IREMBO_WEBHOOK_SECRET] },
-  async (req, res) => {
-    if (req.method !== "POST") {
-      res.status(405).send("Method Not Allowed");
-      return;
-    }
-
-    const signature = req.get("X-Irembo-Signature") || req.get("X-Signature") || "";
-    const rawBody = req.rawBody ? req.rawBody.toString("utf8") : JSON.stringify(req.body);
-
-    const isValid = verifySignature(rawBody, signature, IREMBO_WEBHOOK_SECRET.value());
-    if (!isValid) {
-      console.error("Rejected webhook: invalid or missing signature");
-      res.status(401).send("Invalid signature");
-      return;
-    }
-
-    const payload = req.body || {};
-    const referenceCode = payload.referenceCode || payload.reference || null;
-    const incomingAmount = Number(payload.amount);
-    const status = payload.status;
-    const transactionId = payload.transactionId || payload.transaction_id || null;
-
-    if (!referenceCode || !incomingAmount || incomingAmount <= 0 || !transactionId) {
-      res.status(400).send("Missing required fields");
-      return;
-    }
-
-    if (status !== "SUCCESS" && status !== "COMPLETED") {
-      console.log(`Ignoring non-success payment status: ${status}`);
-      res.status(200).send("Ignored");
-      return;
-    }
-
-    const invoiceSnap = await db
-      .collection("invoices")
-      .where("referenceCode", "==", referenceCode)
-      .limit(1)
-      .get();
-
-    if (invoiceSnap.empty) {
-      console.error(`No invoice found for reference code ${referenceCode}`);
-      res.status(404).send("Invoice not found");
-      return;
-    }
-
-    const invoiceDoc = invoiceSnap.docs[0];
-    const invoice = invoiceDoc.data();
-
-    const existingPaymentSnap = await db
-      .collection("payments")
-      .where("transactionId", "==", transactionId)
-      .limit(1)
-      .get();
-    if (!existingPaymentSnap.empty) {
-      console.log(`Duplicate webhook for transaction ${transactionId}, ignoring`);
-      res.status(200).send("Already processed");
-      return;
-    }
-
-    await db.collection("payments").add({
-      invoiceId: invoiceDoc.id,
-      provider: "irembo",
-      transactionId,
-      amount: incomingAmount,
-      rawCallbackPayload: payload,
-      receivedAt: FieldValue.serverTimestamp(),
-    });
-
-    const previousPaid = invoice.amountPaid || 0;
-    const totalPaidNow = previousPaid + incomingAmount;
-    const expectedAmount = invoice.amount || 0;
-    const shortfall = Math.round((expectedAmount - totalPaidNow) * 100) / 100;
-
-    let newStatus;
-    if (shortfall <= 0.01) {
-      newStatus = "paid";
-    } else {
-      newStatus = "partial";
-    }
-
-    await invoiceDoc.ref.update({
-      status: newStatus,
-      lastPaymentAt: FieldValue.serverTimestamp(),
-      amountPaid: totalPaidNow,
-      shortfall: Math.max(0, shortfall),
-      underpaid: shortfall > 0.01,
-    });
-
-    if (newStatus === "partial") {
-      const adminTokensSnap = await db.collection("deviceTokens").where("role", "==", "admin").get();
-      const adminTokens = adminTokensSnap.docs.map((d) => d.data().token);
-      if (adminTokens.length > 0) {
-        try {
-          await messaging.sendEachForMulticast({
-            notification: {
-              title: "Underpayment Detected",
-              body: `Room ${invoice.roomNumber}: paid ${incomingAmount}, still owes ${shortfall}. Ref ${referenceCode}.`,
-            },
-            tokens: adminTokens,
-          });
-        } catch (e) {
-          console.error("Failed to send underpayment alert", e);
-        }
-      }
-    }
-
-    if (invoice.roomId && invoice.month) {
-      const utilityType = invoice.utilityType || "electricity";
-      const entryId = `entry-${invoice.roomId}-${invoice.month}-${utilityType}-payment`;
-      await db.doc(`usageEntries/${entryId}`).set(
-        {
-          id: entryId,
-          roomId: invoice.roomId,
-          date: invoice.month,
-          utilityType,
-          unitsUsed: invoice.unitsUsed || 0,
-          amountPaid: totalPaidNow,
-          note: newStatus === "partial"
-            ? `Partial Irembo/BK payment, ref ${referenceCode}, still owes ${shortfall}`
-            : `Verified Irembo/BK payment, ref ${referenceCode}`,
-          createdBy: "system:irembo-webhook",
-          createdAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-    }
-
-    res.status(200).send("OK");
-  }
-);
-
-// --- Self-registration: tenant claims a vacant room by email ---
-exports.selfRegisterTenant = onCall(async (request) => {
-  if (!request.auth || !request.auth.token.email) {
-    throw new Error("Must be signed in with an email");
-  }
-  const email = request.auth.token.email.toLowerCase();
-  const { roomId, name, phone, moveInDate } = request.data || {};
-  if (!roomId || !name) throw new Error("roomId and name required");
-
-  const buildingRef = db.doc("voltraTower/building");
-  const tenantRef = db.doc("tenants/" + email);
-
-  await db.runTransaction(async (tx) => {
-    const buildingSnap = await tx.get(buildingRef);
-    if (!buildingSnap.exists) throw new Error("Building not initialized");
-    const rooms = buildingSnap.data().rooms || [];
-    const roomIdx = rooms.findIndex((r) => r.id === roomId);
-    if (roomIdx === -1) throw new Error("Room not found");
-    if (rooms[roomIdx].tenantId) throw new Error("Room already occupied");
-
-    const existingTenant = await tx.get(tenantRef);
-    if (existingTenant.exists) throw new Error("You are already registered to a room");
-
-    rooms[roomIdx] = { ...rooms[roomIdx], tenantId: email };
-    tx.set(tenantRef, {
-      id: email,
-      name,
-      phone: phone || "",
-      email,
-      roomId,
-      floorNumber: rooms[roomIdx].floorNumber,
-      moveInDate: moveInDate || new Date().toISOString().split("T")[0],
-      role: "tenant",
-    });
-    tx.update(buildingRef, { rooms });
-  });
-
-  return { ok: true };
+  return deleteExpiredScreenshots();
 });

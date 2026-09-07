@@ -1,49 +1,77 @@
-# Voltra Tower
+# Cash Power Tracker
 
-A platform for tracking daily electricity usage and payments across a large
-building — 8 floors, 200 rooms per floor. Tenants log daily usage and
-payments through a calendar view; admins monitor and manage every floor and
-room from a central dashboard.
+A small rental building tool. A tenant types the room number that is on their
+door plus their name, and they are in — no admin approval, no account to open.
+They pay their rent and cash power however they already do (phone, Irembo,
+cash), then send a screenshot or photo of the payment along with what they
+paid and their cash power meter reading. The admin sits with that in front of
+them and marks it paid, or partial with the amount actually received.
 
-## Features
+## How it works
 
-- Tenant calendar: click any date, log electricity units used and amount
-  paid, add optional notes
-- Monthly totals per room: units used, amount paid, outstanding balance
-- Admin dashboard: view all 8 floors, drill into any floor's 200 rooms
-- Admin room view: full calendar history per room, edit any entry
-- Configurable electricity rate per unit (building-wide or per floor)
-- Building-wide summary: total collected, total outstanding, paid vs
-  overdue breakdown per floor
+**Tenant**
+- Enters room number + name on the landing screen. Phone is optional, and so
+  is "do you have cash power?" — rooms without a meter simply never see the
+  reading field.
+- Sees only their own room and their own submissions. Nothing about the
+  building, other rooms, or other tenants.
+- Sends a payment: amount paid, cash power reading typed free-form (meter
+  numbers are not in any sequence), an optional note, and a photo or
+  screenshot as proof.
+
+**Admin**
+- Signs in with Google. Bootstrap admins are listed in `authService.ts`,
+  `firestore.rules` and `functions/index.js`; anyone else needs a doc in the
+  `admins` collection.
+- Gets a bell alert and a push notification the moment a tenant submits.
+  Clicking the alert opens that tenant's screen with what they uploaded.
+- Sees every room registered, every submission, and what is still waiting to
+  be marked.
+- Marks a submission **paid**, or **partial** with the figure actually
+  received, and can edit any field on any room or submission — a mistyped
+  reading, a wrong amount, a name.
+- Can free a room number so a new tenant can claim it.
+
+**Rooms are never hard-coded.** A room doc is created the first time someone
+types its number, so the building can be any shape and grow as tenants arrive.
+The first anonymous browser to claim a room number owns it; anyone else typing
+the same number is told to talk to the admin.
+
+## Photo retention
+
+Payment photos are deleted 14 days after upload by a daily Cloud Function
+(`cleanupExpiredScreenshots`, also callable on demand as
+`cleanupScreenshotsNow`) to stay inside the free Storage tier. The submission
+record — amount, cash power reading, notes, admin decision — stays forever, so
+the archive still shows that this person read this meter and paid this much.
 
 ## Tech stack
 
-- **Frontend:** React + Vite + TypeScript
-- **Backend / storage:** currently local storage (`storageService.ts`) —
-  Firebase (Firestore + Cloud Functions + Auth) integration planned
-- **Hosting target:** Vercel (frontend), Firebase (backend, once wired in)
+- **Frontend:** React + Vite + TypeScript + Tailwind
+- **Backend:** Firebase — Firestore, Storage, Cloud Functions, FCM
+- **Auth:** anonymous sign-in for tenants (their uid owns the room),
+  Google sign-in for admins
+
+There is no payment-provider integration. Everything about Irembo APIs, bank
+webhooks and generated invoices was removed — payment proof is a photo, and
+confirmation is the admin's own judgement.
 
 ## Project structure
 
 ```
 src/
-├── 1_core/          # Pure business logic: balance calculations, domain types, date/currency utils
-├── 2_backend/        # Services layer connecting UI to storage
-├── 3_frontend/       # React components and hooks
-└── 4_ops/            # Seed scripts, tests (in progress)
+├── 1_core/       # Domain types and formatters
+├── 2_backend/    # Firebase services (auth, storage, notifications)
+└── 3_frontend/   # React components and hooks
+functions/        # claimRoom, submission alerts, screenshot cleanup
 ```
 
 ## Getting started
 
 ```bash
 npm install
+cp .env.example .env   # fill in your Firebase project values
 npm run dev
 ```
 
-Copy `.env.example` to `.env` and fill in any required values before running.
-
-## Status
-
-Early prototype. Data currently persists to local storage only — not yet
-connected to a real database, so data will not sync across devices or
-survive a browser data clear.
+Deploy rules and functions with `firebase deploy --only firestore:rules,storage,functions`.
