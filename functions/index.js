@@ -1,3 +1,4 @@
+const { setGlobalOptions } = require("firebase-functions/v2");
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
@@ -5,6 +6,20 @@ const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
 const { getMessaging } = require("firebase-admin/messaging");
+
+// Hard ceiling on what this project can ever cost. maxInstances is the one
+// that matters: without it a bug or an abusive client can spin up hundreds of
+// containers and bill for every one. With it, the worst case is that requests
+// queue and eventually fail -- the building's admin sees errors instead of an
+// invoice, which is the trade this project wants.
+// No region here on purpose: the Firestore trigger has to live in the same
+// region as the database (africa-south1 on this project), and pinning one
+// region globally would break it.
+setGlobalOptions({
+  maxInstances: 3,
+  memory: "256MiB",
+  timeoutSeconds: 60,
+});
 
 initializeApp();
 const db = getFirestore();
@@ -169,7 +184,13 @@ async function deleteExpiredScreenshots() {
 }
 
 exports.cleanupExpiredScreenshots = onSchedule(
-  { schedule: "0 3 * * *", timeZone: "Africa/Kigali" },
+  {
+    schedule: "0 3 * * *",
+    timeZone: "Africa/Kigali",
+    maxInstances: 1,
+    timeoutSeconds: 300,
+    retryCount: 0,
+  },
   async () => {
     const { deleted } = await deleteExpiredScreenshots();
     console.log(`Deleted ${deleted} expired payment screenshots`);
