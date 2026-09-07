@@ -1,4 +1,4 @@
-﻿import { BalanceStatus } from '../domain/types';
+import { SubmissionStatus } from '../domain/types';
 
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -9,42 +9,18 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
-export function formatKwh(units: number): string {
-  return `${units.toFixed(1)} kWh`;
-}
-
-// Floor numbering: -1 = Basement, 0 = Ground, 1-8 = upper floors (10 floors total)
-export function getFloorLabel(floorNumber: number): string {
-  if (floorNumber === -1) return 'Basement';
-  if (floorNumber === 0) return 'Ground';
-  return `Floor ${floorNumber}`;
-}
-
-export function getFloorCode(floorNumber: number): string {
-  if (floorNumber === -1) return 'B';
-  if (floorNumber === 0) return 'G';
-  return `F${floorNumber}`;
-}
-
-export function formatRoomNumber(floorNumber: number, roomIndex: number): string {
-  const padded = roomIndex.toString().padStart(3, '0');
-  return `${getFloorCode(floorNumber)}-${padded}`;
-}
-
-export function getStatusLabel(status: BalanceStatus): string {
+export function getStatusLabel(status: SubmissionStatus): string {
   switch (status) {
     case 'paid':
-      return 'Paid in Full';
+      return 'Paid';
     case 'partial':
       return 'Partial Payment';
-    case 'overdue':
-      return 'Overdue Balance';
-    case 'no_usage':
-      return 'No Usage Logged';
+    case 'pending':
+      return 'Awaiting Review';
   }
 }
 
-export function getStatusBadgeStyle(status: BalanceStatus): {
+export function getStatusBadgeStyle(status: SubmissionStatus): {
   bg: string;
   text: string;
   border: string;
@@ -62,13 +38,7 @@ export function getStatusBadgeStyle(status: BalanceStatus): {
         text: 'text-black',
         border: 'border-black',
       };
-    case 'overdue':
-      return {
-        bg: 'bg-black',
-        text: 'text-white',
-        border: 'border-black',
-      };
-    case 'no_usage':
+    case 'pending':
       return {
         bg: 'bg-neutral-200',
         text: 'text-neutral-700',

@@ -1,7 +1,9 @@
-import { initializeApp } from "firebase/app";
+﻿import { initializeApp } from "firebase/app";
 import { getMessaging } from "firebase/messaging";
 import { initializeFirestore } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getStorage } from "firebase/storage";
+import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -18,3 +20,5 @@ export const messaging = getMessaging(firebaseApp);
 export const db = initializeFirestore(firebaseApp, { ignoreUndefinedProperties: true });
 export const auth = getAuth(firebaseApp);
 export const googleProvider = new GoogleAuthProvider();
+export const storage = getStorage(firebaseApp);
+export const functions = getFunctions(firebaseApp);

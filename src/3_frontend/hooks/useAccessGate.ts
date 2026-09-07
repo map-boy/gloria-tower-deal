@@ -1,85 +1,111 @@
-﻿import { useEffect, useRef, useState } from 'react';
-import type { User } from 'firebase/auth';
-import {
-  subscribeActiveSessions,
-  claimSession,
-  heartbeat,
-  releaseSession,
-  MAX_CONCURRENT_SESSIONS,
-  SESSION_HEARTBEAT_MS,
-  IDLE_TIMEOUT_MS,
-} from '../../2_backend/services/sessionService';
+﻿import { useState, useEffect, useCallback } from 'react';
+import { signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
+import { auth, functions } from '../../2_backend/services/firebaseConfig';
 
-export type AccessStatus = 'checking' | 'waiting' | 'granted' | 'idle';
+export type AccessRole = 'tenant' | 'admin' | null;
 
-export function useAccessGate(user: User | null) {
-  const [status, setStatus] = useState<AccessStatus>('checking');
-  const [activeCount, setActiveCount] = useState(0);
-  const [secondsLeft, setSecondsLeft] = useState(60);
-  const grantedRef = useRef(false);
+interface StoredAccess {
+  role: AccessRole;
+  roomId?: string;
+  roomNumber?: string;
+  tenantName?: string;
+}
 
-  // Reactive capacity check: grants access the instant a slot is free.
+const STORAGE_KEY = 'voltra_access';
+
+function readStored(): StoredAccess {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : { role: null };
+  } catch {
+    return { role: null };
+  }
+}
+
+function writeStored(data: StoredAccess) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+export interface ClaimRoomInput {
+  roomNumber: string;
+  tenantName: string;
+  tenantPhone?: string;
+  hasElectricity: boolean;
+}
+
+export interface ClaimRoomResult {
+  ok: boolean;
+  roomId: string;
+  reason?: 'taken_by_other';
+}
+
+// Tenants never log in with email/password. Every browser gets a Firebase
+// anonymous uid; claiming a room stamps that uid onto the room doc as
+// tenantUid, and Firestore rules key all tenant-scoped reads/writes off
+// request.auth.uid == room.tenantUid. localStorage only caches the
+// roomId/name for instant UI on reload -- it grants no access by itself.
+export function useAccessGate() {
+  const [user, setUser] = useState<User | null>(null);
+  const [access, setAccess] = useState<StoredAccess>(readStored());
+  const [authReady, setAuthReady] = useState(false);
+
   useEffect(() => {
-    if (!user) return;
-    const unsub = subscribeActiveSessions((sessions) => {
-      const amIActive = sessions.some((s) => s.uid === user.uid);
-      const otherCount = sessions.filter((s) => s.uid !== user.uid).length;
-      setActiveCount(otherCount);
-
-      if (amIActive) {
-        grantedRef.current = true;
-        setStatus('granted');
-      } else if (otherCount < MAX_CONCURRENT_SESSIONS) {
-        claimSession(user.uid, user.email || '');
-      } else if (!grantedRef.current) {
-        setStatus('waiting');
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) {
+        try {
+          await signInAnonymously(auth);
+        } catch (e) {
+          console.error('Anonymous sign-in failed', e);
+        }
+        return;
       }
+      setUser(u);
+      setAuthReady(true);
     });
     return unsub;
-  }, [user]);
+  }, []);
 
-  // Keep-alive ping so this session doesn't look stale to others.
-  useEffect(() => {
-    if (status !== 'granted' || !user) return;
-    const interval = setInterval(() => heartbeat(user.uid, user.email || ''), SESSION_HEARTBEAT_MS);
-    return () => clearInterval(interval);
-  }, [status, user]);
+  const enterRoom = useCallback(
+    async (input: ClaimRoomInput): Promise<ClaimRoomResult> => {
+      const claimRoomFn = httpsCallable(functions, 'claimRoom');
+      const res = await claimRoomFn(input);
+      const data = res.data as ClaimRoomResult;
+      if (data.ok) {
+        const next: StoredAccess = {
+          role: 'tenant',
+          roomId: data.roomId,
+          roomNumber: input.roomNumber,
+          tenantName: input.tenantName,
+        };
+        writeStored(next);
+        setAccess(next);
+      }
+      return data;
+    },
+    []
+  );
 
-  // Release the slot after a minute of no interaction.
-  useEffect(() => {
-    if (status !== 'granted' || !user) return;
-    let idleTimer: ReturnType<typeof setTimeout>;
-    const resetIdle = () => {
-      clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        releaseSession(user.uid);
-        grantedRef.current = false;
-        setStatus('idle');
-      }, IDLE_TIMEOUT_MS);
-    };
-    const events = ['mousemove', 'keydown', 'touchstart', 'scroll', 'click'];
-    events.forEach((e) => window.addEventListener(e, resetIdle));
-    resetIdle();
-    return () => {
-      clearTimeout(idleTimer);
-      events.forEach((e) => window.removeEventListener(e, resetIdle));
-    };
-  }, [status, user]);
+  const setAdminAccess = useCallback(() => {
+    const next: StoredAccess = { role: 'admin' };
+    writeStored(next);
+    setAccess(next);
+  }, []);
 
-  // Visible countdown while waiting (real admission is reactive, above).
-  useEffect(() => {
-    if (status !== 'waiting') {
-      setSecondsLeft(60);
-      return;
-    }
-    setSecondsLeft(60);
-    const interval = setInterval(() => {
-      setSecondsLeft((s) => (s <= 1 ? 60 : s - 1));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [status]);
+  const logout = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEY);
+    setAccess({ role: null });
+  }, []);
 
-  const resume = () => setStatus('checking');
-
-  return { status, activeCount, secondsLeft, resume };
+  return {
+    authReady,
+    uid: user?.uid ?? null,
+    role: access.role,
+    roomId: access.roomId ?? null,
+    roomNumber: access.roomNumber ?? null,
+    tenantName: access.tenantName ?? null,
+    enterRoom,
+    setAdminAccess,
+    logout,
+  };
 }

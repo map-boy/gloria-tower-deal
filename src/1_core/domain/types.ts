@@ -1,95 +1,43 @@
-export type Role = 'tenant' | 'admin';
-
-export const FLOOR_NUMBERS: number[] = [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8];
-export const ROOMS_PER_FLOOR = 200;
-export const TOTAL_ROOMS = FLOOR_NUMBERS.length * ROOMS_PER_FLOOR;
-
-export type UtilityType = 'electricity' | 'water' | 'rent';
-
-export interface Tenant {
-  id: string;
-  name: string;
-  phone: string;
-  email: string;
-  roomId: string;
-  floorNumber: number;
-  moveInDate: string;
-  role: Role;
-}
+﻿export type Role = 'tenant' | 'admin';
 
 export interface Room {
-  id: string;
-  roomNumber: string;
-  floorNumber: number;
-  tenantId?: string;
-  tenant?: Tenant;
-  rateOverrides?: Partial<Record<UtilityType, number>>;
-}
-
-export interface UsageEntry {
-  id: string;
-  roomId: string;
-  tenantId?: string;
-  date: string;
-  utilityType?: UtilityType;
-  unitsUsed: number;
-  amountPaid: number;
-  note?: string;
-  createdBy: string;
+  id: string;              // slug of roomNumber, e.g. "12b"
+  roomNumber: string;      // exactly as the tenant typed it
+  tenantName: string;
+  tenantPhone?: string;
+  hasElectricity: boolean; // set once, when the tenant first joins
+  tenantUid: string;        // Firebase anonymous auth uid of the claiming tenant
+  active: boolean;         // false once admin frees the room
   createdAt: string;
-  updatedAt?: string;
 }
 
-export interface RateConfig {
+export type SubmissionStatus = 'pending' | 'paid' | 'partial';
+
+export interface Submission {
   id: string;
-  scope: 'building' | 'floor';
-  floorNumber?: number;
-  utilityType?: UtilityType;
-  ratePerUnit: number;
-  effectiveFrom: string;
-}
-
-export type BalanceStatus = 'paid' | 'partial' | 'overdue' | 'no_usage';
-
-export interface MonthlyRoomStats {
   roomId: string;
   roomNumber: string;
   tenantName: string;
-  year: number;
-  month: number;
-  totalUnits: number;
-  totalPaid: number;
-  expectedCost: number;
-  balance: number;
-  status: BalanceStatus;
-  daysLogged: number;
-  appliedRate: number;
+  cashPowerReading?: string;    // free text, only when room.hasElectricity
+  amountReported: number;       // what the tenant says they paid
+  note?: string;
+  screenshotPath?: string;      // Firebase Storage path
+  screenshotExpiresAt?: string; // createdAt + 14 days, for cleanup
+  screenshotDeleted?: boolean;
+  status: SubmissionStatus;
+  amountConfirmed?: number;     // admin's figure if different (partial)
+  reviewedBy?: string;
+  reviewedAt?: string;
+  createdAt: string;
 }
 
-export interface FloorSummary {
-  floorNumber: number;
-  totalRooms: number;
-  occupiedRooms: number;
-  totalUnits: number;
-  totalCollected: number;
-  totalOutstanding: number;
-  paidCount: number;
-  partialCount: number;
-  overdueCount: number;
-  ratePerUnit: number;
-}
-
-export interface BuildingSummary {
-  buildingName: string;
-  totalFloors: number;
-  totalRooms: number;
-  occupiedRooms: number;
-  totalCollectedThisMonth: number;
-  totalOutstandingThisMonth: number;
-  totalUnitsThisMonth: number;
-  paidRoomsCount: number;
-  partialRoomsCount: number;
-  overdueRoomsCount: number;
-  defaultRatePerUnit: number;
-  perFloorSummaries: FloorSummary[];
+export interface AppNotification {
+  id: string;
+  type: 'submission_created';
+  roomId: string;
+  roomNumber: string;
+  tenantName: string;
+  submissionId: string;
+  read: boolean;
+  createdAt: string;
 }

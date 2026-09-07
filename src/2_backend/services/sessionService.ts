@@ -1,4 +1,4 @@
-﻿import { doc, setDoc, deleteDoc, onSnapshot, collection, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, onSnapshot, collection, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db } from './firebaseConfig';
 
 // Tunable safety valve. Firestore's free (Spark) tier caps at 50,000 reads/day
@@ -13,7 +13,7 @@ const sessionsRef = collection(db, 'activeSessions');
 
 export interface SessionRecord {
   uid: string;
-  email: string;
+  label: string; // admin email, or "Room <roomNumber> - <tenantName>" for tenants
   lastHeartbeat?: Timestamp;
 }
 
@@ -30,17 +30,17 @@ export function subscribeActiveSessions(callback: (sessions: SessionRecord[]) =>
   });
 }
 
-export async function claimSession(uid: string, email: string): Promise<void> {
+export async function claimSession(uid: string, label: string): Promise<void> {
   await setDoc(doc(db, 'activeSessions', uid), {
-    email,
+    label,
     lastHeartbeat: serverTimestamp(),
   });
 }
 
-export async function heartbeat(uid: string, email: string): Promise<void> {
+export async function heartbeat(uid: string, label: string): Promise<void> {
   await setDoc(
     doc(db, 'activeSessions', uid),
-    { email, lastHeartbeat: serverTimestamp() },
+    { label, lastHeartbeat: serverTimestamp() },
     { merge: true }
   );
 }
