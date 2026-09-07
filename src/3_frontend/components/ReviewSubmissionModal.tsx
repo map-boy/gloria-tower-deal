@@ -1,5 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Submission, SubmissionStatus } from '../../1_core/domain/types';
+import {
+  SERVICE_LABELS,
+  SERVICE_TYPES,
+  ServiceType,
+  Submission,
+  SubmissionStatus,
+  submissionReading,
+  submissionService,
+} from '../../1_core/domain/types';
 import { formatCurrency } from '../../1_core/utils/formatters';
 import { ScreenshotView } from './ScreenshotView';
 
@@ -13,7 +21,8 @@ interface ReviewSubmissionModalProps {
       status: SubmissionStatus;
       amountConfirmed: number;
       amountReported: number;
-      cashPowerReading?: string;
+      serviceType: ServiceType;
+      meterReading?: string;
       adminNote?: string;
     }
   ) => Promise<void>;
@@ -32,7 +41,8 @@ export const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({
   const [status, setStatus] = useState<SubmissionStatus>('paid');
   const [amountConfirmed, setAmountConfirmed] = useState('');
   const [amountReported, setAmountReported] = useState('');
-  const [cashPowerReading, setCashPowerReading] = useState('');
+  const [meterReading, setMeterReading] = useState('');
+  const [serviceType, setServiceType] = useState<ServiceType>('electricity');
   const [adminNote, setAdminNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -44,7 +54,8 @@ export const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({
       String(submission.amountConfirmed ?? submission.amountReported ?? 0)
     );
     setAmountReported(String(submission.amountReported ?? 0));
-    setCashPowerReading(submission.cashPowerReading ?? '');
+    setMeterReading(submissionReading(submission) ?? '');
+    setServiceType(submissionService(submission));
     setAdminNote(submission.adminNote ?? '');
     setError('');
   }, [submission]);
@@ -66,7 +77,8 @@ export const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({
         status,
         amountConfirmed: confirmed,
         amountReported: reported,
-        cashPowerReading: cashPowerReading.trim(),
+        serviceType,
+        meterReading: meterReading.trim(),
         adminNote: adminNote.trim(),
       });
       onClose();
@@ -98,7 +110,9 @@ export const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({
       <div className="bg-white border-3 border-black rounded-2xl w-full max-w-md p-6 text-black max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between pb-4 border-b-2 border-black mb-4">
           <div>
-            <h3 className="font-serif font-black text-xl">Room {submission.roomNumber}</h3>
+            <h3 className="font-serif font-black text-xl">
+              Room {submission.roomNumber}
+            </h3>
             <p className="font-mono text-[11px] text-neutral-600">{submission.tenantName}</p>
           </div>
           <button
@@ -168,11 +182,29 @@ export const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({
           </div>
 
           <div>
-            <label className="block font-bold uppercase mb-1">Cash power reading</label>
+            <label className="block font-bold uppercase mb-1">What this payment is for</label>
+            <div className="grid grid-cols-3 gap-2">
+              {SERVICE_TYPES.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setServiceType(s)}
+                  className={`py-2 rounded-lg border-2 border-black font-bold text-[11px] uppercase cursor-pointer ${
+                    serviceType === s ? 'bg-black text-white' : 'bg-white text-black'
+                  }`}
+                >
+                  {SERVICE_LABELS[s]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-bold uppercase mb-1">Meter reading</label>
             <input
               type="text"
-              value={cashPowerReading}
-              onChange={(e) => setCashPowerReading(e.target.value)}
+              value={meterReading}
+              onChange={(e) => setMeterReading(e.target.value)}
               placeholder="Correct it if the tenant mistyped"
               className={inputClass}
             />

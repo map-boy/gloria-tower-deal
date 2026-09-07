@@ -1,5 +1,10 @@
 import React from 'react';
-import { Submission } from '../../1_core/domain/types';
+import {
+  SERVICE_LABELS,
+  Submission,
+  submissionReading,
+  submissionService,
+} from '../../1_core/domain/types';
 import {
   formatCurrency,
   formatDateTime,
@@ -22,6 +27,8 @@ export const SubmissionCard: React.FC<SubmissionCardProps> = ({
   onReview,
 }) => {
   const badge = getStatusBadgeStyle(submission.status);
+  const service = submissionService(submission);
+  const reading = submissionReading(submission);
   const shortfall =
     submission.status === 'partial' && submission.amountConfirmed !== undefined
       ? submission.amountReported - submission.amountConfirmed
@@ -38,7 +45,7 @@ export const SubmissionCard: React.FC<SubmissionCardProps> = ({
             </div>
           )}
           <div className="font-mono text-[10px] uppercase tracking-wider text-neutral-500">
-            {formatDateTime(submission.createdAt)}
+            {SERVICE_LABELS[service]} &middot; {formatDateTime(submission.createdAt)}
           </div>
         </div>
         <span
@@ -63,10 +70,12 @@ export const SubmissionCard: React.FC<SubmissionCardProps> = ({
         </div>
       </div>
 
-      {submission.cashPowerReading && (
+      {reading && (
         <div className="font-mono text-xs">
-          <span className="text-[10px] uppercase text-neutral-500">Cash power reading: </span>
-          <span className="font-bold break-all">{submission.cashPowerReading}</span>
+          <span className="text-[10px] uppercase text-neutral-500">
+            {SERVICE_LABELS[service]} reading:{' '}
+          </span>
+          <span className="font-bold break-all">{reading}</span>
         </div>
       )}
 

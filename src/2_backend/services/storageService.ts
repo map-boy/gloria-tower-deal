@@ -15,7 +15,7 @@ import {
   getDownloadURL,
 } from 'firebase/storage';
 import { db, storage } from './firebaseConfig';
-import { Room, Submission } from '../../1_core/domain/types';
+import { Room, ServiceType, Submission, normalizeRoomKey } from '../../1_core/domain/types';
 
 const roomsCollectionRef = collection(db, 'rooms');
 const submissionsCollectionRef = collection(db, 'submissions');
@@ -128,7 +128,8 @@ export class StorageService {
     roomNumber: string;
     tenantName: string;
     tenantUid: string;
-    cashPowerReading?: string;
+    serviceType: ServiceType;
+    meterReading?: string;
     amountReported: number;
     note?: string;
     screenshotPath?: string;
@@ -145,7 +146,8 @@ export class StorageService {
       roomNumber: input.roomNumber,
       tenantName: input.tenantName,
       tenantUid: input.tenantUid,
-      cashPowerReading: input.cashPowerReading,
+      serviceType: input.serviceType,
+      meterReading: input.meterReading,
       amountReported: input.amountReported,
       note: input.note,
       screenshotPath: input.screenshotPath,
@@ -185,15 +187,28 @@ export class StorageService {
     await deleteDoc(doc(db, 'submissions', submissionId));
   }
 
-  // Admin-only edits to a room's own fields.
+  // Admin-only edits to a room's own fields. Renaming a room has to move its
+  // roomKey too, or the tenant could no longer find the room when logging in.
   public async updateRoom(
     roomId: string,
-    updates: Partial<Pick<Room, 'roomNumber' | 'tenantName' | 'tenantPhone' | 'hasElectricity' | 'active'>>
+    updates: Partial<
+      Pick<
+        Room,
+        | 'roomNumber'
+        | 'tenantName'
+        | 'tenantPhone'
+        | 'hasElectricity'
+        | 'hasWater'
+        | 'hasRent'
+        | 'active'
+      >
+    >
   ): Promise<void> {
-    await updateDoc(doc(db, 'rooms', roomId), {
-      ...updates,
-      updatedAt: new Date().toISOString(),
-    });
+    const patch: Record<string, unknown> = { ...updates, updatedAt: new Date().toISOString() };
+    if (updates.roomNumber !== undefined) {
+      patch.roomKey = normalizeRoomKey(updates.roomNumber);
+    }
+    await updateDoc(doc(db, 'rooms', roomId), patch);
   }
 
   // Frees a room that's showing as taken but shouldn't be (tenant moved out,

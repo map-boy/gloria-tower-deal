@@ -32,6 +32,8 @@ export interface ClaimRoomInput {
   tenantName?: string;
   tenantPhone: string;
   hasElectricity?: boolean;
+  hasWater?: boolean;
+  hasRent?: boolean;
   password: string;
 }
 

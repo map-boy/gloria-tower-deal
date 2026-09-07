@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { AppNotification } from '../../1_core/domain/types';
-import { formatCurrency, formatDateTime } from '../../1_core/utils/formatters';
+import { formatDateTime } from '../../1_core/utils/formatters';
 
 interface NotificationBellProps {
   notifications: AppNotification[];
   onOpen: (notification: AppNotification) => void;
 }
 
-// Pops up when a tenant sends a payment or a cash power reading. Clicking one
-// takes the admin straight to that tenant's screen.
+// Pops up when a tenant sends a payment, and when the project is getting close
+// to the end of a free tier allowance. Clicking a payment alert takes the admin
+// straight to that tenant's screen.
 export const NotificationBell: React.FC<NotificationBellProps> = ({ notifications, onOpen }) => {
   const [open, setOpen] = useState(false);
   const unread = notifications.filter((n) => !n.read).length;
@@ -46,12 +47,12 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ notification
                   }`}
                 >
                   <div className="font-serif font-black text-sm">
-                    Room {n.roomNumber}
+                    {n.title || `Room ${n.roomNumber}`}
                     {!n.read && <span className="ml-2 font-mono text-[10px] uppercase">new</span>}
                   </div>
                   <div className="font-mono text-[11px] text-neutral-700">
-                    {n.tenantName} sent {formatCurrency(n.amountReported ?? 0)}
-                    {n.cashPowerReading ? ` · reading ${n.cashPowerReading}` : ''}
+                    {n.body ||
+                      `${n.tenantName ?? 'A tenant'} sent ${n.amountReported ?? 0} RWF`}
                   </div>
                   <div className="font-mono text-[10px] text-neutral-500">
                     {formatDateTime(n.createdAt)}

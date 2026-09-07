@@ -1,5 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { AppNotification, Room, Submission, SubmissionStatus } from '../../1_core/domain/types';
+import {
+  AppNotification,
+  Room,
+  SERVICE_LABELS,
+  ServiceType,
+  Submission,
+  SubmissionStatus,
+  roomServices,
+} from '../../1_core/domain/types';
 import {
   formatCurrency,
   formatDateTime,
@@ -26,14 +34,26 @@ interface AdminDashboardProps {
       status: SubmissionStatus;
       amountConfirmed: number;
       amountReported: number;
-      cashPowerReading?: string;
+      serviceType: ServiceType;
+      meterReading?: string;
       adminNote?: string;
     }
   ) => Promise<void>;
   onDeleteSubmission: (submissionId: string) => Promise<void>;
   onSaveRoom: (
     roomId: string,
-    updates: Partial<Pick<Room, 'roomNumber' | 'tenantName' | 'tenantPhone' | 'hasElectricity' | 'active'>>
+    updates: Partial<
+      Pick<
+        Room,
+        | 'roomNumber'
+        | 'tenantName'
+        | 'tenantPhone'
+        | 'hasElectricity'
+        | 'hasWater'
+        | 'hasRent'
+        | 'active'
+      >
+    >
   ) => Promise<void>;
   onFreeRoom: (roomId: string) => Promise<void>;
   selectedRoomId: string | null;
@@ -124,6 +144,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             onReview={setReviewing}
             onSaveRoom={onSaveRoom}
             onFreeRoom={onFreeRoom}
+            onRoomDeleted={() => onSelectRoom(null)}
           />
         ) : (
           <>
@@ -196,7 +217,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </div>
                             <div className="text-xs text-neutral-700 truncate">{room.tenantName}</div>
                             <div className="text-[10px] uppercase text-neutral-500">
-                              {room.hasElectricity ? 'cash power' : 'no cash power'}
+                              {roomServices(room).map((x) => SERVICE_LABELS[x]).join(', ') ||
+                                'no services'}
                               {last ? ` · last sent ${formatDateTime(last.createdAt)}` : ' · nothing sent'}
                             </div>
                           </div>

@@ -12,3 +12,14 @@ export async function setRoomPassword(roomId: string, password: string): Promise
   );
   await call({ roomId, password });
 }
+
+// Deleting a room takes its password, every submission it ever had, and the
+// photos behind them -- a cascade the client cannot do on its own.
+export async function deleteRoom(roomId: string): Promise<{ deletedSubmissions: number }> {
+  const call = httpsCallable<{ roomId: string }, { ok: boolean; deletedSubmissions: number }>(
+    functions,
+    'deleteRoom'
+  );
+  const res = await call({ roomId });
+  return { deletedSubmissions: res.data.deletedSubmissions };
+}

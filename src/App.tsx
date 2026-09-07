@@ -1,5 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AppNotification, Submission, SubmissionStatus, Room } from './1_core/domain/types';
+import {
+  AppNotification,
+  Room,
+  ServiceType,
+  Submission,
+  SubmissionStatus,
+} from './1_core/domain/types';
 import { storageService } from './2_backend/services/storageService';
 import { useVoltraStore, useAuthRole } from './3_frontend/hooks/useVoltraStore';
 import { useAccessGate } from './3_frontend/hooks/useAccessGate';
@@ -72,7 +78,8 @@ export default function App() {
 
   const handleTenantSubmit = useCallback(
     async (input: {
-      cashPowerReading?: string;
+      serviceType: ServiceType;
+      meterReading?: string;
       amountReported: number;
       note?: string;
       screenshotPath?: string;
@@ -102,6 +109,9 @@ export default function App() {
   const handleOpenNotification = useCallback(
     (n: AppNotification) => {
       if (!n.read) markNotificationRead(n.id).catch(() => undefined);
+      // Free tier warnings are not about any one room, so there is nothing
+      // to open -- marking them read is the whole interaction.
+      if (!n.roomId || !n.submissionId) return;
       setSelectedRoomId(n.roomId);
       const submission = storageService.getSubmissionById(n.submissionId);
       if (submission) setFocusSubmission(submission);
@@ -116,7 +126,8 @@ export default function App() {
         status: SubmissionStatus;
         amountConfirmed: number;
         amountReported: number;
-        cashPowerReading?: string;
+        serviceType: ServiceType;
+        meterReading?: string;
         adminNote?: string;
       }
     ) => {
@@ -124,7 +135,8 @@ export default function App() {
         status: updates.status,
         amountConfirmed: updates.amountConfirmed,
         amountReported: updates.amountReported,
-        cashPowerReading: updates.cashPowerReading ?? '',
+        serviceType: updates.serviceType,
+        meterReading: updates.meterReading ?? '',
         adminNote: updates.adminNote ?? '',
       });
     },
@@ -134,7 +146,18 @@ export default function App() {
   const handleSaveRoom = useCallback(
     (
       roomId: string,
-      updates: Partial<Pick<Room, 'roomNumber' | 'tenantName' | 'tenantPhone' | 'hasElectricity' | 'active'>>
+      updates: Partial<
+        Pick<
+          Room,
+          | 'roomNumber'
+          | 'tenantName'
+          | 'tenantPhone'
+          | 'hasElectricity'
+          | 'hasWater'
+          | 'hasRent'
+          | 'active'
+        >
+      >
     ) => store.updateRoom(roomId, updates),
     [store]
   );

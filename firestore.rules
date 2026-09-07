@@ -45,6 +45,12 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // Free tier usage snapshot, written by the daily job.
+    match /usage/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     // Room passwords. No client reads or writes these, ever -- only the
     // claimRoom and setRoomPassword functions touch them, via the admin SDK.
     match /roomSecrets/{roomId} {

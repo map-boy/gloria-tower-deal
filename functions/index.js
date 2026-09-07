@@ -35,6 +35,14 @@ const BOOTSTRAP_ADMIN_EMAILS = [
 
 // Rooms are never hard-coded. A room doc is born the moment a tenant types
 // its number on the door, so the building can be any shape and grow freely.
+// The room number as typed is display only; this is what a login matches on,
+// so "12 B", "12b" and "12-B" all find the same room. The admin can rename a
+// room freely because the document id never changes -- only this key does.
+// Must stay identical to normalizeRoomKey in src/1_core/domain/types.ts.
+function normalizeRoomKey(roomNumber) {
+  return String(roomNumber).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function slugifyRoomNumber(roomNumber) {
   return String(roomNumber)
     .trim()
@@ -51,6 +59,12 @@ function slugifyRoomNumber(roomNumber) {
 // Hashes live in roomSecrets/{roomId}, a collection no client can read at all,
 // so not even the admin sees a tenant's password.
 const MIN_PASSWORD_LENGTH = 4;
+
+const SERVICE_LABELS = {
+  electricity: "Cash power",
+  water: "Water",
+  rent: "Rent",
+};
 
 function hashPassword(password, salt) {
   return crypto.scryptSync(String(password), salt, 64).toString("hex");
@@ -93,7 +107,15 @@ exports.claimRoom = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Sign-in required");
   }
   const uid = request.auth.uid;
-  const { roomNumber, tenantName, tenantPhone, hasElectricity, password } = request.data || {};
+  const {
+    roomNumber,
+    tenantName,
+    tenantPhone,
+    hasElectricity,
+    hasWater,
+    hasRent,
+    password,
+  } = request.data || {};
 
   if (!roomNumber || !String(roomNumber).trim()) {
     throw new HttpsError("invalid-argument", "Room number is required");
@@ -108,39 +130,81 @@ exports.claimRoom = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "Phone number is required");
   }
 
-  const roomId = slugifyRoomNumber(roomNumber);
-  if (!roomId) {
+  const roomKey = normalizeRoomKey(roomNumber);
+  if (!roomKey) {
     throw new HttpsError("invalid-argument", "Room number is not usable");
   }
-
-  const roomRef = db.doc(`rooms/${roomId}`);
-  const secretRef = db.doc(`roomSecrets/${roomId}`);
+  const slug = slugifyRoomNumber(roomNumber) || roomKey;
   const now = new Date().toISOString();
 
   return db.runTransaction(async (tx) => {
-    const [roomSnap, secretSnap] = await tx.getAll(roomRef, secretRef);
-    const existing = roomSnap.exists ? roomSnap.data() : null;
+    // Find the room by its key, not by document id, so a room the admin
+    // renamed is still found under its new number.
+    const byKey = await tx.get(
+      db.collection("rooms").where("roomKey", "==", roomKey).limit(1)
+    );
+
+    let roomRef;
+    let roomSnap = null;
+    if (!byKey.empty) {
+      roomSnap = byKey.docs[0];
+      roomRef = roomSnap.ref;
+    } else {
+      // Rooms created before roomKey existed have no key to match on, so try
+      // the two ids such a room could be sitting at. Missing this would let
+      // "12-B" create a second room beside the existing "12B".
+      const slugRef = db.doc(`rooms/${slug}`);
+      const keyRef = db.doc(`rooms/${roomKey}`);
+      const [slugSnap, keySnap] = await tx.getAll(slugRef, keyRef);
+
+      if (slugSnap.exists) {
+        roomRef = slugRef;
+        roomSnap = slugSnap;
+      } else if (keySnap.exists) {
+        roomRef = keyRef;
+        roomSnap = keySnap;
+      } else {
+        roomRef = slugRef;
+        roomSnap = null;
+      }
+    }
+
+    const secretRef = db.doc(`roomSecrets/${roomRef.id}`);
+    const secretSnap = await tx.get(secretRef);
+
+    const existing = roomSnap ? roomSnap.data() : null;
     const name = String(tenantName || "").trim() || (existing ? existing.tenantName : "");
     if (!name) {
       throw new HttpsError("invalid-argument", "Your name is required");
     }
 
+    // On the way back in the tenant does not re-answer the service questions,
+    // so keep whatever the room already has unless a value was sent.
+    const pick = (sent, current, fallback) =>
+      sent === undefined ? (existing ? !!current : fallback) : sent !== false;
+
     const fields = {
+      roomKey,
       roomNumber: String(roomNumber).trim(),
       tenantName: name,
       tenantPhone: String(tenantPhone).trim(),
-      hasElectricity:
-        hasElectricity === undefined && existing
-          ? existing.hasElectricity
-          : hasElectricity !== false,
+      hasElectricity: pick(hasElectricity, existing && existing.hasElectricity, true),
+      hasWater: pick(hasWater, existing && existing.hasWater, false),
+      hasRent: pick(hasRent, existing && existing.hasRent, false),
       updatedAt: now,
     };
 
     // Nobody has this room number yet -- claim it and set its password.
-    if (!roomSnap.exists) {
-      tx.set(roomRef, { id: roomId, ...fields, tenantUid: uid, active: true, createdAt: now });
+    if (!roomSnap) {
+      tx.set(roomRef, {
+        id: roomRef.id,
+        ...fields,
+        tenantUid: uid,
+        active: true,
+        createdAt: now,
+      });
       tx.set(secretRef, buildSecret(password));
-      return { ok: true, roomId, created: true };
+      return { ok: true, roomId: roomRef.id, created: true };
     }
 
     const room = existing;
@@ -149,11 +213,11 @@ exports.claimRoom = onCall(async (request) => {
     // owns it can set one; anyone else still has to see the admin.
     if (!secretSnap.exists) {
       if (room.tenantUid && room.tenantUid !== uid) {
-        return { ok: false, roomId, reason: "taken_by_other" };
+        return { ok: false, roomId: roomRef.id, reason: "taken_by_other" };
       }
       tx.update(roomRef, { ...fields, tenantUid: uid, active: true });
       tx.set(secretRef, buildSecret(password));
-      return { ok: true, roomId };
+      return { ok: true, roomId: roomRef.id };
     }
 
     // Coming back needs two things they know: the phone on the room and the
@@ -163,12 +227,12 @@ exports.claimRoom = onCall(async (request) => {
     const phoneOk = !storedPhone || storedPhone === normalizePhone(tenantPhone);
 
     if (!passwordMatches(password, secretSnap.data()) || !phoneOk) {
-      return { ok: false, roomId, reason: "wrong_credentials" };
+      return { ok: false, roomId: roomRef.id, reason: "wrong_credentials" };
     }
 
     // Checks out: hand the room to whatever browser they are on now.
     tx.update(roomRef, { ...fields, tenantUid: uid, active: true });
-    return { ok: true, roomId };
+    return { ok: true, roomId: roomRef.id };
   });
 });
 
@@ -195,20 +259,77 @@ exports.setRoomPassword = onCall(async (request) => {
   return { ok: true };
 });
 
+// Admin deletes a room outright: the room, its password, every submission it
+// ever had, and the photos behind them. Nothing is left pointing at a room
+// that no longer exists.
+exports.deleteRoom = onCall(async (request) => {
+  if (!(await isAdmin(request.auth))) {
+    throw new HttpsError("permission-denied", "Admin only");
+  }
+  const { roomId } = request.data || {};
+  if (!roomId) {
+    throw new HttpsError("invalid-argument", "roomId required");
+  }
+
+  const bucket = getStorage().bucket();
+  const submissionsSnap = await db
+    .collection("submissions")
+    .where("roomId", "==", roomId)
+    .get();
+
+  for (const docSnap of submissionsSnap.docs) {
+    const path = docSnap.data().screenshotPath;
+    if (path) {
+      try {
+        await bucket.file(path).delete({ ignoreNotFound: true });
+      } catch (e) {
+        console.error(`Could not delete ${path}`, e);
+      }
+    }
+  }
+
+  const notificationsSnap = await db
+    .collection("notifications")
+    .where("roomId", "==", roomId)
+    .get();
+
+  // Batches cap at 500 writes, so chunk rather than assume a small room.
+  const refs = [
+    ...submissionsSnap.docs.map((d) => d.ref),
+    ...notificationsSnap.docs.map((d) => d.ref),
+    db.doc(`roomSecrets/${roomId}`),
+    db.doc(`rooms/${roomId}`),
+  ];
+  for (let i = 0; i < refs.length; i += 400) {
+    const batch = db.batch();
+    refs.slice(i, i + 400).forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
+
+  return { ok: true, deletedSubmissions: submissionsSnap.size };
+});
+
 // --- Admin gets a bell + a push the moment a tenant submits ---
 exports.onSubmissionCreated = onDocumentCreated("submissions/{submissionId}", async (event) => {
   const submission = event.data ? event.data.data() : null;
   if (!submission) return;
 
+  const service = submission.serviceType || "electricity";
+  const reading = submission.meterReading || submission.cashPowerReading || "";
+  const serviceLabel = SERVICE_LABELS[service] || service;
+
   await db.doc(`notifications/${event.params.submissionId}`).set({
     id: event.params.submissionId,
     type: "submission_created",
+    title: `Room ${submission.roomNumber} sent a ${serviceLabel.toLowerCase()} payment`,
+    body: `${submission.tenantName} reports ${submission.amountReported} RWF paid.` +
+      (reading ? ` Reading: ${reading}.` : ""),
     roomId: submission.roomId,
     roomNumber: submission.roomNumber,
     tenantName: submission.tenantName,
     submissionId: event.params.submissionId,
     amountReported: submission.amountReported || 0,
-    cashPowerReading: submission.cashPowerReading || "",
+    serviceType: service,
     read: false,
     createdAt: submission.createdAt || new Date().toISOString(),
   });
@@ -217,15 +338,12 @@ exports.onSubmissionCreated = onDocumentCreated("submissions/{submissionId}", as
   const tokens = tokensSnap.docs.map((d) => d.data().token).filter(Boolean);
   if (tokens.length === 0) return;
 
-  const reading = submission.cashPowerReading
-    ? ` Cash power reading: ${submission.cashPowerReading}.`
-    : "";
-
   try {
     await messaging.sendEachForMulticast({
       notification: {
-        title: `Room ${submission.roomNumber} submitted a payment`,
-        body: `${submission.tenantName} reports ${submission.amountReported} RWF paid.${reading}`,
+        title: `Room ${submission.roomNumber} sent a ${serviceLabel.toLowerCase()} payment`,
+        body: `${submission.tenantName} reports ${submission.amountReported} RWF paid.` +
+          (reading ? ` Reading: ${reading}.` : ""),
       },
       tokens,
     });
@@ -268,6 +386,103 @@ async function deleteExpiredScreenshots() {
   return { deleted };
 }
 
+// --- Free tier watch ---
+// Warns the admin before Google's free allowances run out, because passing
+// them is what turns this project from free into billable. Only what can be
+// measured cheaply from inside the project is checked: bytes in the photo
+// bucket and stored document counts. Function invocations and daily read
+// counts are not visible here -- those live in Cloud Monitoring.
+const FREE_TIER_STORAGE_BYTES = 5 * 1024 * 1024 * 1024; // 5 GB of Cloud Storage
+const FREE_TIER_DOCS = 50000; // stand-in for the 1 GiB Firestore allowance
+const WARN_AT = 0.8; // shout once usage passes 80% of an allowance
+
+async function measureUsage() {
+  const bucket = getStorage().bucket();
+  const [files] = await bucket.getFiles({ maxResults: 5000 });
+  const storageBytes = files.reduce(
+    (total, file) => total + Number((file.metadata && file.metadata.size) || 0),
+    0
+  );
+
+  const [submissions, rooms] = await Promise.all([
+    db.collection("submissions").count().get(),
+    db.collection("rooms").count().get(),
+  ]);
+
+  return {
+    storageBytes,
+    photoCount: files.length,
+    submissionCount: submissions.data().count,
+    roomCount: rooms.data().count,
+    storageRatio: storageBytes / FREE_TIER_STORAGE_BYTES,
+    docRatio: (submissions.data().count + rooms.data().count) / FREE_TIER_DOCS,
+    measuredAt: new Date().toISOString(),
+  };
+}
+
+async function warnAdmins(id, title, body) {
+  // One document id per day per warning, so a daily check cannot spam the bell.
+  const ref = db.doc(`notifications/${id}`);
+  if ((await ref.get()).exists) return false;
+
+  await ref.set({
+    id,
+    type: "free_tier_warning",
+    title,
+    body,
+    read: false,
+    createdAt: new Date().toISOString(),
+  });
+
+  const tokensSnap = await db.collection("deviceTokens").where("role", "==", "admin").get();
+  const tokens = tokensSnap.docs.map((d) => d.data().token).filter(Boolean);
+  if (tokens.length > 0) {
+    try {
+      await messaging.sendEachForMulticast({ notification: { title, body }, tokens });
+    } catch (e) {
+      console.error("Failed to send free tier warning", e);
+    }
+  }
+  return true;
+}
+
+async function checkFreeTier() {
+  const usage = await measureUsage();
+  await db.doc("usage/current").set(usage);
+
+  const today = usage.measuredAt.slice(0, 10);
+  const gb = (usage.storageBytes / (1024 * 1024 * 1024)).toFixed(2);
+
+  if (usage.storageRatio >= WARN_AT) {
+    await warnAdmins(
+      `free-tier-storage-${today}`,
+      "Photo storage is nearly full",
+      `${gb} GB of the free 5 GB is used across ${usage.photoCount} photos. ` +
+        `Past 5 GB the project starts costing money. Old photos delete themselves ` +
+        `after 14 days, so this usually means a sudden burst of uploads.`
+    );
+  }
+
+  if (usage.docRatio >= WARN_AT) {
+    await warnAdmins(
+      `free-tier-docs-${today}`,
+      "Database is filling up",
+      `${usage.submissionCount} submissions and ${usage.roomCount} rooms stored, ` +
+        `close to the free allowance. Consider deleting rooms that have moved out.`
+    );
+  }
+
+  return usage;
+}
+
+// Lets the admin check usage on demand instead of waiting for the daily run.
+exports.checkFreeTierNow = onCall(async (request) => {
+  if (!(await isAdmin(request.auth))) {
+    throw new HttpsError("permission-denied", "Admin only");
+  }
+  return checkFreeTier();
+});
+
 exports.cleanupExpiredScreenshots = onSchedule(
   {
     schedule: "0 3 * * *",
@@ -279,6 +494,12 @@ exports.cleanupExpiredScreenshots = onSchedule(
   async () => {
     const { deleted } = await deleteExpiredScreenshots();
     console.log(`Deleted ${deleted} expired payment screenshots`);
+    // Measure after the cleanup, so the number reflects what is actually kept.
+    const usage = await checkFreeTier();
+    console.log(
+      `Storage ${(usage.storageRatio * 100).toFixed(1)}% of free tier, ` +
+        `${usage.submissionCount} submissions`
+    );
   }
 );
 

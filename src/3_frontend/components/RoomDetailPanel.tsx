@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Room, Submission } from '../../1_core/domain/types';
+import { Room, SERVICE_LABELS, Submission, roomServices } from '../../1_core/domain/types';
 import { formatCurrency, formatDateTime } from '../../1_core/utils/formatters';
-import { setRoomPassword } from '../../2_backend/services/roomPasswordService';
+import { deleteRoom, setRoomPassword } from '../../2_backend/services/roomPasswordService';
 import { SubmissionCard } from './SubmissionCard';
 
 interface RoomDetailPanelProps {
@@ -12,9 +12,21 @@ interface RoomDetailPanelProps {
   onReview: (submission: Submission) => void;
   onSaveRoom: (
     roomId: string,
-    updates: Partial<Pick<Room, 'roomNumber' | 'tenantName' | 'tenantPhone' | 'hasElectricity' | 'active'>>
+    updates: Partial<
+      Pick<
+        Room,
+        | 'roomNumber'
+        | 'tenantName'
+        | 'tenantPhone'
+        | 'hasElectricity'
+        | 'hasWater'
+        | 'hasRent'
+        | 'active'
+      >
+    >
   ) => Promise<void>;
   onFreeRoom: (roomId: string) => Promise<void>;
+  onRoomDeleted: () => void;
 }
 
 // One tenant's whole screen: who they are, what they uploaded, what they paid.
@@ -26,12 +38,16 @@ export const RoomDetailPanel: React.FC<RoomDetailPanelProps> = ({
   onReview,
   onSaveRoom,
   onFreeRoom,
+  onRoomDeleted,
 }) => {
   const [editing, setEditing] = useState(false);
   const [roomNumber, setRoomNumber] = useState(room.roomNumber);
   const [tenantName, setTenantName] = useState(room.tenantName);
   const [tenantPhone, setTenantPhone] = useState(room.tenantPhone ?? '');
   const [hasElectricity, setHasElectricity] = useState(room.hasElectricity);
+  const [hasWater, setHasWater] = useState(!!room.hasWater);
+  const [hasRent, setHasRent] = useState(!!room.hasRent);
+  const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [resetting, setResetting] = useState(false);
@@ -50,6 +66,8 @@ export const RoomDetailPanel: React.FC<RoomDetailPanelProps> = ({
         tenantName: tenantName.trim(),
         tenantPhone: tenantPhone.trim(),
         hasElectricity,
+        hasWater,
+        hasRent,
       });
       setEditing(false);
     } catch (e: any) {
@@ -62,6 +80,28 @@ export const RoomDetailPanel: React.FC<RoomDetailPanelProps> = ({
   const handleFree = async () => {
     if (!window.confirm('Free this room so someone else can claim the number?')) return;
     await onFreeRoom(room.id);
+  };
+
+  // Deleting takes the room, its password, its submissions and their photos.
+  // Freeing a room is the reversible option; this one is not.
+  const handleDelete = async () => {
+    const typed = window.prompt(
+      `Delete room ${room.roomNumber} and all ${submissions.length} of its submissions? ` +
+        `This cannot be undone. Type the room number to confirm.`
+    );
+    if (typed === null) return;
+    if (typed.trim().toLowerCase() !== room.roomNumber.trim().toLowerCase()) {
+      window.alert('That did not match the room number. Nothing was deleted.');
+      return;
+    }
+    setDeleting(true);
+    try {
+      await deleteRoom(room.id);
+      onRoomDeleted();
+    } catch (e: any) {
+      window.alert(e?.message || 'Could not delete the room.');
+      setDeleting(false);
+    }
   };
 
   // A tenant who cleared their phone or forgot their password has no other way
@@ -111,17 +151,28 @@ export const RoomDetailPanel: React.FC<RoomDetailPanelProps> = ({
               <label className="block font-bold uppercase mb-1">Phone</label>
               <input value={tenantPhone} onChange={(e) => setTenantPhone(e.target.value)} className={inputClass} />
             </div>
-            <div className="flex items-center justify-between border-2 border-black rounded-xl p-2.5">
-              <span className="font-bold uppercase">Has cash power</span>
-              <button
-                type="button"
-                onClick={() => setHasElectricity((v) => !v)}
-                className={`px-3 py-1.5 rounded-lg border-2 border-black font-bold text-[11px] cursor-pointer ${
-                  hasElectricity ? 'bg-black text-white' : 'bg-white text-black'
-                }`}
-              >
-                {hasElectricity ? 'Yes' : 'No'}
-              </button>
+            <div className="border-2 border-black rounded-xl p-2.5 space-y-2">
+              <div className="font-bold uppercase">What this room pays for</div>
+              {(
+                [
+                  ['Cash power', hasElectricity, setHasElectricity],
+                  ['Water', hasWater, setHasWater],
+                  ['Rent', hasRent, setHasRent],
+                ] as [string, boolean, (fn: (v: boolean) => boolean) => void][]
+              ).map(([label, value, setValue]) => (
+                <div key={label} className="flex items-center justify-between gap-2">
+                  <span>{label}</span>
+                  <button
+                    type="button"
+                    onClick={() => setValue((v) => !v)}
+                    className={`px-3 py-1.5 rounded-lg border-2 border-black font-bold text-[11px] cursor-pointer ${
+                      value ? 'bg-black text-white' : 'bg-white text-black'
+                    }`}
+                  >
+                    {value ? 'Yes' : 'No'}
+                  </button>
+                </div>
+              ))}
             </div>
             {error && <p className="text-[11px] text-red-600">{error}</p>}
             <div className="flex gap-2">
@@ -150,8 +201,9 @@ export const RoomDetailPanel: React.FC<RoomDetailPanelProps> = ({
                   <p className="font-mono text-xs text-neutral-700">{room.tenantPhone}</p>
                 )}
                 <p className="font-mono text-[10px] uppercase text-neutral-500 mt-1">
-                  {room.hasElectricity ? 'Has cash power' : 'No cash power'} &middot;{' '}
-                  {room.active ? 'Active' : 'Freed'} &middot; joined {formatDateTime(room.createdAt)}
+                  {roomServices(room).map((s) => SERVICE_LABELS[s]).join(', ') || 'No services'}{' '}
+                  &middot; {room.active ? 'Active' : 'Freed'} &middot; joined{' '}
+                  {formatDateTime(room.createdAt)}
                 </p>
               </div>
               <button
@@ -207,6 +259,14 @@ export const RoomDetailPanel: React.FC<RoomDetailPanelProps> = ({
                 Free this room number
               </button>
             )}
+
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="w-full bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 font-mono font-bold text-xs py-2.5 rounded-xl border-2 border-black cursor-pointer"
+            >
+              {deleting ? 'Deleting...' : 'Delete this room for good'}
+            </button>
           </>
         )}
       </div>

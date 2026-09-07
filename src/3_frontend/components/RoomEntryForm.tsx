@@ -5,6 +5,8 @@ export interface RoomEntryInput {
   tenantName?: string;
   tenantPhone: string;
   hasElectricity?: boolean;
+  hasWater?: boolean;
+  hasRent?: boolean;
   password: string;
 }
 
@@ -29,6 +31,8 @@ export const RoomEntryForm: React.FC<RoomEntryFormProps> = ({ onSubmit }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [hasElectricity, setHasElectricity] = useState(true);
+  const [hasWater, setHasWater] = useState(false);
+  const [hasRent, setHasRent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showTakenPopup, setShowTakenPopup] = useState(false);
   const [error, setError] = useState('');
@@ -56,7 +60,7 @@ export const RoomEntryForm: React.FC<RoomEntryFormProps> = ({ onSubmit }) => {
         tenantPhone: tenantPhone.trim(),
         password,
         ...(isFirstTime
-          ? { tenantName: tenantName.trim(), hasElectricity }
+          ? { tenantName: tenantName.trim(), hasElectricity, hasWater, hasRent }
           : {}),
       });
       if (!result.ok) {
@@ -174,19 +178,31 @@ export const RoomEntryForm: React.FC<RoomEntryFormProps> = ({ onSubmit }) => {
           </div>
 
           {isFirstTime && (
-            <div className="flex items-center justify-between border-2 border-black rounded-xl p-3">
-              <span className="text-xs font-bold uppercase">
-                Do you have electricity (cash power)?
-              </span>
-              <button
-                type="button"
-                onClick={() => setHasElectricity((v) => !v)}
-                className={`px-3 py-1.5 rounded-lg border-2 border-black font-bold text-xs cursor-pointer ${
-                  hasElectricity ? 'bg-black text-white' : 'bg-white text-black'
-                }`}
-              >
-                {hasElectricity ? 'Yes' : 'No'}
-              </button>
+            <div className="border-2 border-black rounded-xl p-3 space-y-2">
+              <div className="text-xs font-bold uppercase">What do you pay for this room?</div>
+              <p className="text-[10px] text-neutral-600">
+                Turn on only what applies. You can only send payments for what is on here.
+              </p>
+              {(
+                [
+                  ['Cash power (electricity)', hasElectricity, setHasElectricity],
+                  ['Water', hasWater, setHasWater],
+                  ['Rent', hasRent, setHasRent],
+                ] as [string, boolean, (fn: (v: boolean) => boolean) => void][]
+              ).map(([label, value, setValue]) => (
+                <div key={label} className="flex items-center justify-between gap-2">
+                  <span className="text-xs">{label}</span>
+                  <button
+                    type="button"
+                    onClick={() => setValue((v) => !v)}
+                    className={`px-3 py-1.5 rounded-lg border-2 border-black font-bold text-xs cursor-pointer ${
+                      value ? 'bg-black text-white' : 'bg-white text-black'
+                    }`}
+                  >
+                    {value ? 'Yes' : 'No'}
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 
