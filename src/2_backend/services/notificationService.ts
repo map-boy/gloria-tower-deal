@@ -9,7 +9,7 @@ import {
   limit,
   onSnapshot,
 } from 'firebase/firestore';
-import { messaging, db } from './firebaseConfig';
+import { db, getMessagingIfSupported } from './firebaseConfig';
 import { AppNotification } from '../../1_core/domain/types';
 
 export async function registerForNotifications(
@@ -17,7 +17,8 @@ export async function registerForNotifications(
   roomId?: string
 ): Promise<string | null> {
   try {
-    if (!('Notification' in window)) return null;
+    const messaging = await getMessagingIfSupported();
+    if (!messaging || !('Notification' in window)) return null;
 
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') return null;
@@ -45,12 +46,28 @@ export async function registerForNotifications(
   }
 }
 
-export function listenForForegroundMessages(callback: (title: string, body: string) => void) {
-  onMessage(messaging, (payload) => {
-    const title = payload.notification?.title || 'Voltra Tower';
-    const body = payload.notification?.body || '';
-    callback(title, body);
+// Returns an unsubscribe function; the listener attaches once messaging is
+// known to work in this browser.
+export function listenForForegroundMessages(
+  callback: (title: string, body: string) => void
+): () => void {
+  let unsub: (() => void) | null = null;
+  let cancelled = false;
+
+  getMessagingIfSupported().then((messaging) => {
+    if (!messaging || cancelled) return;
+    unsub = onMessage(messaging, (payload) => {
+      callback(
+        payload.notification?.title || 'Cash Power Tracker',
+        payload.notification?.body || ''
+      );
+    });
   });
+
+  return () => {
+    cancelled = true;
+    if (unsub) unsub();
+  };
 }
 
 // --- In-app notification bell (admin) ---

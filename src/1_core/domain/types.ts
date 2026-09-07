@@ -1,14 +1,15 @@
-﻿export type Role = 'tenant' | 'admin';
+export type Role = 'tenant' | 'admin';
 
 export interface Room {
-  id: string;              // slug of roomNumber, e.g. "12b"
-  roomNumber: string;      // exactly as the tenant typed it
+  id: string;               // slug of roomNumber, e.g. "12b"
+  roomNumber: string;       // exactly as the tenant typed it
   tenantName: string;
   tenantPhone?: string;
-  hasElectricity: boolean; // set once, when the tenant first joins
+  hasElectricity: boolean;  // optional per room -- some rooms have no cash power meter
   tenantUid: string;        // Firebase anonymous auth uid of the claiming tenant
-  active: boolean;         // false once admin frees the room
+  active: boolean;          // false once admin frees the room
   createdAt: string;
+  updatedAt?: string;
 }
 
 export type SubmissionStatus = 'pending' | 'paid' | 'partial';
@@ -18,17 +19,20 @@ export interface Submission {
   roomId: string;
   roomNumber: string;
   tenantName: string;
-  cashPowerReading?: string;    // free text, only when room.hasElectricity
+  tenantUid: string;            // who filed it; rules key tenant reads off this
+  cashPowerReading?: string;    // free text -- meters are not in any fixed sequence
   amountReported: number;       // what the tenant says they paid
   note?: string;
   screenshotPath?: string;      // Firebase Storage path
   screenshotExpiresAt?: string; // createdAt + 14 days, for cleanup
-  screenshotDeleted?: boolean;
+  screenshotDeleted?: boolean;  // true once the photo is gone, record stays
   status: SubmissionStatus;
-  amountConfirmed?: number;     // admin's figure if different (partial)
+  amountConfirmed?: number;     // admin's figure -- lower than reported means partial
+  adminNote?: string;
   reviewedBy?: string;
   reviewedAt?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface AppNotification {
@@ -38,6 +42,8 @@ export interface AppNotification {
   roomNumber: string;
   tenantName: string;
   submissionId: string;
+  amountReported?: number;
+  cashPowerReading?: string;
   read: boolean;
   createdAt: string;
 }

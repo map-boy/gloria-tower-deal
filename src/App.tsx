@@ -1,846 +1,244 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { AppNotification, Submission, SubmissionStatus, Room } from './1_core/domain/types';
+import { storageService } from './2_backend/services/storageService';
 import { useVoltraStore, useAuthRole } from './3_frontend/hooks/useVoltraStore';
-import { useDarkMode } from './3_frontend/hooks/useDarkMode';
-import { Sidebar, ActiveTab } from './3_frontend/components/Sidebar';
-import { TopBar } from './3_frontend/components/TopBar';
-import { TrainerStyleInfoCard } from './3_frontend/components/TrainerStyleInfoCard';
-import { MonthlyReadingPanel } from './3_frontend/components/MonthlyReadingPanel';
-import { DayEntryModal } from './3_frontend/components/DayEntryModal';
-import { AdminSummaryPanel } from './3_frontend/components/AdminSummaryPanel';
-import { PaymentsLedgerPanel } from './3_frontend/components/PaymentsLedgerPanel';
-import { FloorCard } from './3_frontend/components/FloorCard';
-import { RoomGrid } from './3_frontend/components/RoomGrid';
-import { RateConfigModal } from './3_frontend/components/RateConfigModal';
-import { RoomRateOverrideModal } from './3_frontend/components/RoomRateOverrideModal';
-import { TenantProfileModal } from './3_frontend/components/TenantProfileModal';
-import { SelectRoomModal } from './3_frontend/components/SelectRoomModal';
-import { getCurrentYearMonth } from './1_core/utils/dateUtils';
-import { UsageEntry, UtilityType } from './1_core/domain/types';
-import { formatCurrency, formatKwh, getFloorLabel, getStatusBadgeStyle, getStatusLabel } from './1_core/utils/formatters';
-import { registerForNotifications, listenForForegroundMessages } from './2_backend/services/notificationService';
 import { useAccessGate } from './3_frontend/hooks/useAccessGate';
-import { MAX_CONCURRENT_SESSIONS } from './2_backend/services/sessionService';
-import { signInWithGoogle, signOutUser, subscribeToAuthState } from './2_backend/services/authService';
-import type { User } from 'firebase/auth';
-import { selfRegisterTenant } from './2_backend/services/tenantRegistrationService';
+import { signInWithGoogle, signOutUser } from './2_backend/services/authService';
+import {
+  registerForNotifications,
+  listenForForegroundMessages,
+  subscribeToNotifications,
+  markNotificationRead,
+} from './2_backend/services/notificationService';
+import { RoomEntryForm } from './3_frontend/components/RoomEntryForm';
+import { TenantHome } from './3_frontend/components/TenantHome';
+import { AdminDashboard } from './3_frontend/components/AdminDashboard';
 
 export default function App() {
+  const gate = useAccessGate();
+  const { role: authRole, firebaseUser, checkingAdmin } = useAuthRole();
   const store = useVoltraStore();
-  const auth = useAuthRole();
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const access = useAccessGate(currentUser);
 
-  useEffect(() => {
-    const unsubscribe = subscribeToAuthState((user) => {
-      setCurrentUser(user);
-      setAuthLoading(false);
-    });
-    return unsubscribe;
-  }, []);
-  const { isDark, toggleDarkMode } = useDarkMode();
-
-  const [activeTab, setActiveTab] = useState<ActiveTab>('home');
-  const [selectedFloorNumber, setSelectedFloorNumber] = useState<number | null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [focusSubmission, setFocusSubmission] = useState<Submission | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
-  const currentYM = getCurrentYearMonth();
-  const [calYear, setCalYear] = useState<number>(currentYM.year);
-  const [calMonth, setCalMonth] = useState<number>(currentYM.month);
+  const isAdmin = authRole === 'admin';
+  const isTenant = !isAdmin && gate.role === 'tenant' && !!gate.roomId;
+  const effectiveRole: 'admin' | 'tenant' | null = isAdmin ? 'admin' : isTenant ? 'tenant' : null;
 
-  const [isDayEntryModalOpen, setIsDayEntryModalOpen] = useState(false);
-  const [selectedDateStr, setSelectedDateStr] = useState<string>('');
-  const [selectedExistingEntry, setSelectedExistingEntry] = useState<UsageEntry | undefined>();
-  const [isRateModalOpen, setIsRateModalOpen] = useState(false);
-  const [isRoomRateOverrideModalOpen, setIsRoomRateOverrideModalOpen] = useState(false);
-  const [isTenantProfileModalOpen, setIsTenantProfileModalOpen] = useState(false);
-  const [isSelectRoomModalOpen, setIsSelectRoomModalOpen] = useState(false);
-  const [isMoveTenantModalOpen, setIsMoveTenantModalOpen] = useState(false);
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [isSelfRegisterPickerOpen, setIsSelfRegisterPickerOpen] = useState(false);
-  const [selfRegisterRoomId, setSelfRegisterRoomId] = useState<string | null>(null);
-  const [manualRoomNumber, setManualRoomNumber] = useState('');
+  // Point the data layer at exactly what this person is allowed to see.
+  useEffect(() => {
+    if (!gate.authReady) return;
+    storageService.setAuthContext(effectiveRole, isAdmin ? null : gate.roomId, gate.uid);
+  }, [gate.authReady, gate.uid, gate.roomId, effectiveRole, isAdmin]);
 
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const [toast, setToast] = useState<{ title: string; body: string } | null>(null);
-
-  const myTenantRecord =
-    auth.role === 'tenant' && currentUser?.email
-      ? store.getTenants().find((t) => t.email.toLowerCase() === currentUser.email!.toLowerCase())
-      : undefined;
-
-  const effectiveRoomId =
-    auth.role === 'admin'
-      ? selectedRoomId || 'room-1-1'
-      : myTenantRecord?.roomId || '';
+  // Admin-only: the bell feed, plus a push when the app is in the background.
+  useEffect(() => {
+    if (!isAdmin) {
+      setNotifications([]);
+      return;
+    }
+    const unsubNotifications = subscribeToNotifications(setNotifications);
+    registerForNotifications('admin');
+    const unsubMessages = listenForForegroundMessages((title, body) =>
+      setToast(`${title} — ${body}`)
+    );
+    return () => {
+      unsubNotifications();
+      unsubMessages();
+    };
+  }, [isAdmin]);
 
   useEffect(() => {
-    registerForNotifications(auth.role, auth.role === 'tenant' ? effectiveRoomId : undefined);
-  }, [auth.role, effectiveRoomId]);
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
-  useEffect(() => {
-    listenForForegroundMessages((title, body) => {
-      setToast({ title, body });
-      setTimeout(() => setToast(null), 6000);
-    });
-  }, []);
+  const rooms = useMemo(() => store.getRooms(), [store.dataVersion]);
+  const submissions = useMemo(() => store.getSubmissions(), [store.dataVersion]);
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100">
-        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center">
-          <div className="font-bold text-lg">Checking sign-in...</div>
-        </div>
-      </div>
-    );
-  }
+  const getScreenshotUrl = useCallback(
+    (path: string) => storageService.getScreenshotUrl(path),
+    []
+  );
 
-  if (!currentUser) {
-    return (
-      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100 p-4">
-        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center max-w-sm w-full space-y-4">
-          <div className="font-serif font-black text-2xl">Voltra Tower</div>
-          <p className="text-xs text-neutral-600 dark:text-neutral-400">Sign in to continue</p>
-          <button
-            onClick={() => signInWithGoogle()}
-            className="w-full bg-black text-white hover:bg-neutral-800 font-bold text-sm py-3 rounded-xl border-2 border-black transition-transform active:scale-95 cursor-pointer"
-          >
-            Sign in with Google
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // --- Tenant actions ---
 
-  if (access.status === 'checking') {
-    return (
-      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100">
-        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center">
-          <div className="font-bold text-lg">Checking system access...</div>
-        </div>
-      </div>
-    );
-  }
+  const tenantRoom = isTenant ? rooms.find((r) => r.id === gate.roomId) : undefined;
 
-  if (access.status === 'waiting') {
-    return (
-      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100 p-4">
-        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center max-w-sm w-full space-y-3">
-          <div className="font-serif font-black text-xl">System Busy</div>
-          <p className="text-xs text-neutral-600 dark:text-neutral-400">
-            Too much traffic right now &bull; {access.activeCount}/{MAX_CONCURRENT_SESSIONS} slots in use.
-          </p>
-          <p className="text-xs text-neutral-600 dark:text-neutral-400">
-            You'll be let in automatically the moment a spot opens. Rechecking in {access.secondsLeft}s&hellip;
-          </p>
-          <button
-            onClick={() => signOutUser()}
-            className="w-full bg-white hover:bg-neutral-100 text-black font-bold text-xs py-2.5 rounded-xl border-2 border-black cursor-pointer"
-          >
-            Log out
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (access.status === 'idle') {
-    return (
-      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100 p-4">
-        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center max-w-sm w-full space-y-3">
-          <div className="font-serif font-black text-xl">Session Paused</div>
-          <p className="text-xs text-neutral-600 dark:text-neutral-400">
-            You were inactive for a minute, so your spot was freed up for someone else.
-          </p>
-          <button
-            onClick={access.resume}
-            className="w-full bg-black text-white hover:bg-neutral-800 font-bold text-sm py-3 rounded-xl border-2 border-black transition-transform active:scale-95 cursor-pointer"
-          >
-            Resume
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (auth.checkingAdmin) {
-    return (
-      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100">
-        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center">
-          <div className="font-bold text-lg">Checking access...</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (auth.role === 'tenant' && !myTenantRecord) {
-    const vacantRooms = store.getRooms().filter((r) => !r.tenantId);
-    const pickedRoom = selfRegisterRoomId ? store.getRoomById(selfRegisterRoomId) : undefined;
-    const matchedRoom = manualRoomNumber.trim()
-      ? vacantRooms.find((r) => r.roomNumber.toLowerCase() === manualRoomNumber.trim().toLowerCase())
-      : undefined;
-    return (
-      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100 p-4">
-        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center max-w-sm w-full space-y-3">
-          <div className="font-serif font-black text-xl">No Room Assigned</div>
-          <p className="text-xs text-neutral-600 dark:text-neutral-400">
-            {currentUser?.email} isn't linked to a room yet. Type your room number to continue.
-          </p>
-
-          <input
-            type="text"
-            value={manualRoomNumber}
-            onChange={(e) => setManualRoomNumber(e.target.value)}
-            placeholder="e.g. F3-014"
-            className="w-full bg-white text-black text-sm p-3 border-2 border-black rounded-xl focus:outline-none text-center font-mono"
-          />
-          {manualRoomNumber.trim() && !matchedRoom && (
-            <p className="text-[10px] font-mono text-red-600">No vacant room found with that number.</p>
-          )}
-
-          <button
-            disabled={!matchedRoom}
-            onClick={() => matchedRoom && setSelfRegisterRoomId(matchedRoom.id)}
-            className="w-full bg-black text-white hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed font-bold text-sm py-3 rounded-xl border-2 border-black transition-transform active:scale-95 cursor-pointer"
-          >
-            Continue
-          </button>
-
-          <button
-            onClick={() => setIsSelfRegisterPickerOpen(true)}
-            className="w-full bg-white hover:bg-neutral-100 text-black font-bold text-xs py-2.5 rounded-xl border-2 border-black cursor-pointer"
-          >
-            Or Browse Available Rooms
-          </button>
-          <button
-            onClick={() => signOutUser()}
-            className="w-full bg-white hover:bg-neutral-100 text-black font-bold text-xs py-2.5 rounded-xl border-2 border-black cursor-pointer"
-          >
-            Log out
-          </button>
-        </div>
-
-        <SelectRoomModal
-          isOpen={isSelfRegisterPickerOpen}
-          onClose={() => setIsSelfRegisterPickerOpen(false)}
-          rooms={vacantRooms}
-          onSelectRoom={(rId) => {
-            setSelfRegisterRoomId(rId);
-            setIsSelfRegisterPickerOpen(false);
-          }}
-        />
-
-        {pickedRoom && (
-          <TenantProfileModal
-            isOpen={!!selfRegisterRoomId}
-            onClose={() => setSelfRegisterRoomId(null)}
-            room={pickedRoom}
-            lockedEmail={currentUser?.email || ''}
-            onAssignTenant={(tenantData) => {
-              selfRegisterTenant({
-                roomId: pickedRoom.id,
-                name: tenantData.name,
-                phone: tenantData.phone,
-                moveInDate: tenantData.moveInDate,
-              })
-                .then(() => setSelfRegisterRoomId(null))
-                .catch((e: any) => alert(e.message || 'Failed to register — the room may already be taken.'));
-            }}
-          />
-        )}
-      </div>
-    );
-  }
-
-  const room = auth.role === 'admin' ? store.getRoomById(effectiveRoomId) || store.getRooms()[0] : store.getRoomById(effectiveRoomId);
-
-  if (!room) {
-    return (
-      <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 flex items-center justify-center font-mono text-black dark:text-neutral-100">
-        <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-8 text-center">
-          <div className="font-bold text-lg mb-1">Loading Voltra Tower...</div>
-          <div className="text-xs text-neutral-600 dark:text-neutral-400">Connecting to building data</div>
-        </div>
-      </div>
-    );
-  }
-
-  const tenant = store.getTenantForRoom(room.id);
-  const roomStats = store.getRoomMonthlyStats(room.id, calYear, calMonth) || {
-    roomId: room.id,
-    roomNumber: room.roomNumber,
-    tenantName: tenant ? tenant.name : 'Vacant',
-    year: calYear,
-    month: calMonth,
-    totalUnits: 0,
-    totalPaid: 0,
-    expectedCost: 0,
-    balance: 0,
-    status: 'no_usage',
-    daysLogged: 0,
-    appliedRate: 350,
-  };
-
-  const roomEntries = store.getRoomUsageEntries(room.id);
-  const monthlyDateStr = `${calYear}-${calMonth.toString().padStart(2, '0')}-01`;
-  const monthEntry = roomEntries.find((e) => e.date === monthlyDateStr);
-  const buildingSummary = store.getBuildingSummary(calYear, calMonth);
-  const invoices = store.getInvoices();
-  const payments = store.getPayments();
-
-  const handleOpenDayModalForDate = (dateStr: string, existingEntry?: UsageEntry) => {
-    setSelectedDateStr(dateStr);
-    setSelectedExistingEntry(existingEntry);
-    setIsDayEntryModalOpen(true);
-  };
-
-  const handleSaveUsageEntry = (entryData: { utilityType: UtilityType; unitsUsed: number; note: string }) => {
-    const existingForUtility = roomEntries.find(
-      (e) => e.date === selectedDateStr && (e.utilityType || 'electricity') === entryData.utilityType
-    );
-    store.saveUsageEntry({
-      id: existingForUtility?.id,
-      roomId: room.id,
-      date: selectedDateStr,
-      utilityType: entryData.utilityType,
-      unitsUsed: entryData.unitsUsed,
-      amountPaid: existingForUtility?.amountPaid ?? 0,
-      note: entryData.note,
-      createdBy: auth.role === 'admin' ? 'Admin' : tenant ? tenant.name : 'Tenant',
-    });
-  };
-
-  const handleDeleteUsageEntry = (entryId: string) => {
-    store.deleteUsageEntry(entryId);
-  };
-
-  const handleSaveRoomRateOverride = (overrides: Partial<Record<'electricity' | 'water' | 'rent', number>>) => {
-    store.setRoomRateOverrides(room.id, overrides);
-  };
-
-  const handleSaveRateConfig = (config: {
-    scope: 'building' | 'floor';
-    floorNumber?: number;
-    utilityType: 'electricity' | 'water' | 'rent';
-    ratePerUnit: number;
-  }) => {
-    store.setRateConfig({
-      ...config,
-      effectiveFrom: new Date().toISOString().split('T')[0],
-    });
-  };
-
-  const handleAssignTenant = (tenantData: { name: string; phone: string; email: string; moveInDate: string }) => {
-    if (tenant) {
-      store.updateTenantProfile(tenant.id, {
-        name: tenantData.name,
-        phone: tenantData.phone,
-        moveInDate: tenantData.moveInDate,
+  const handleTenantSubmit = useCallback(
+    async (input: {
+      cashPowerReading?: string;
+      amountReported: number;
+      note?: string;
+      screenshotPath?: string;
+    }) => {
+      if (!tenantRoom || !gate.uid) return;
+      await store.createSubmission({
+        roomId: tenantRoom.id,
+        roomNumber: tenantRoom.roomNumber,
+        tenantName: tenantRoom.tenantName,
+        tenantUid: gate.uid,
+        ...input,
       });
-    } else {
-      store.assignTenantToRoom(room.id, tenantData);
+    },
+    [tenantRoom, gate.uid, store]
+  );
+
+  const handleUploadScreenshot = useCallback(
+    (file: File) => {
+      if (!tenantRoom) throw new Error('No room');
+      return store.uploadPaymentScreenshot(tenantRoom.id, file);
+    },
+    [tenantRoom, store]
+  );
+
+  // --- Admin actions ---
+
+  const handleOpenNotification = useCallback(
+    (n: AppNotification) => {
+      if (!n.read) markNotificationRead(n.id).catch(() => undefined);
+      setSelectedRoomId(n.roomId);
+      const submission = storageService.getSubmissionById(n.submissionId);
+      if (submission) setFocusSubmission(submission);
+    },
+    []
+  );
+
+  const handleSaveReview = useCallback(
+    async (
+      submissionId: string,
+      updates: {
+        status: SubmissionStatus;
+        amountConfirmed: number;
+        amountReported: number;
+        cashPowerReading?: string;
+        adminNote?: string;
+      }
+    ) => {
+      await store.reviewSubmission(submissionId, firebaseUser?.email || 'admin', {
+        status: updates.status,
+        amountConfirmed: updates.amountConfirmed,
+        amountReported: updates.amountReported,
+        cashPowerReading: updates.cashPowerReading ?? '',
+        adminNote: updates.adminNote ?? '',
+      });
+    },
+    [store, firebaseUser]
+  );
+
+  const handleSaveRoom = useCallback(
+    (
+      roomId: string,
+      updates: Partial<Pick<Room, 'roomNumber' | 'tenantName' | 'tenantPhone' | 'hasElectricity' | 'active'>>
+    ) => store.updateRoom(roomId, updates),
+    [store]
+  );
+
+  const handleAdminSignIn = async () => {
+    setSigningIn(true);
+    try {
+      await signInWithGoogle();
+    } finally {
+      setSigningIn(false);
     }
   };
 
-  const handleVacateRoom = () => {
-    store.vacateRoom(room.id);
-    setIsTenantProfileModalOpen(false);
-  };
+  const handleLogout = useCallback(async () => {
+    setSelectedRoomId(null);
+    setFocusSubmission(null);
+    gate.logout();
+    if (firebaseUser && !firebaseUser.isAnonymous) {
+      await signOutUser();
+    }
+  }, [gate, firebaseUser]);
 
-  const handleOpenMoveTenantModal = () => {
-    setIsTenantProfileModalOpen(false);
-    setIsMoveTenantModalOpen(true);
-  };
+  // --- Screens ---
 
-  const handleSelectMoveDestination = (destRoomId: string) => {
-    store.moveTenant(room.id, destRoomId);
-    setIsMoveTenantModalOpen(false);
-  };
+  if (!gate.authReady || checkingAdmin) {
+    return (
+      <div className="min-h-screen bg-neutral-200 flex items-center justify-center font-mono text-black text-sm">
+        Loading...
+      </div>
+    );
+  }
+
+  if (isAdmin) {
+    return (
+      <>
+        {toast && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-black text-white font-mono text-xs px-4 py-3 rounded-xl border-2 border-black max-w-sm">
+            {toast}
+          </div>
+        )}
+        <AdminDashboard
+          rooms={rooms}
+          submissions={submissions}
+          notifications={notifications}
+          adminLabel={firebaseUser?.email || 'admin'}
+          getScreenshotUrl={getScreenshotUrl}
+          onOpenNotification={handleOpenNotification}
+          onSaveReview={handleSaveReview}
+          onDeleteSubmission={store.deleteSubmission}
+          onSaveRoom={handleSaveRoom}
+          onFreeRoom={store.freeRoom}
+          selectedRoomId={selectedRoomId}
+          onSelectRoom={setSelectedRoomId}
+          focusSubmission={
+            focusSubmission
+              ? storageService.getSubmissionById(focusSubmission.id) ?? focusSubmission
+              : null
+          }
+          onClearFocusSubmission={() => setFocusSubmission(null)}
+          onLogout={handleLogout}
+        />
+      </>
+    );
+  }
+
+  if (isTenant) {
+    if (!tenantRoom) {
+      return (
+        <div className="min-h-screen bg-neutral-200 flex items-center justify-center font-mono text-black text-sm">
+          Loading your room...
+        </div>
+      );
+    }
+    return (
+      <TenantHome
+        room={tenantRoom}
+        submissions={submissions}
+        onUploadScreenshot={handleUploadScreenshot}
+        onSubmit={handleTenantSubmit}
+        getScreenshotUrl={getScreenshotUrl}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  const signedInNotAdmin = !!firebaseUser && !firebaseUser.isAnonymous;
 
   return (
-    <div className="min-h-screen bg-neutral-200 dark:bg-neutral-950 p-2 sm:p-4 lg:p-6 font-sans text-black flex items-center justify-center">
-      {toast && (
-        <div className="fixed top-4 right-4 z-[100] bg-black text-white border-2 border-black rounded-xl p-4 max-w-xs shadow-2xl font-mono">
-          <div className="font-bold text-sm mb-1">{toast.title}</div>
-          <div className="text-xs text-neutral-300">{toast.body}</div>
-        </div>
-      )}
-      <div className="w-full max-w-[1440px] bg-neutral-100 dark:bg-neutral-950 border-3 border-black dark:border-neutral-200 rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row min-h-[90vh] relative">
-        <Sidebar
-          activeTab={activeTab}
-          onTabChange={(tab) => {
-            setActiveTab(tab);
-            if (tab === 'floors') {
-              setSelectedFloorNumber(null);
-              setSelectedRoomId(null);
-            }
-          }}
-          role={auth.role}
-          onLogout={() => signOutUser()}
-          activeRoomNumber={room.roomNumber}
-          activeTenantName={tenant?.name}
-
-          isMobileOpen={isMobileSidebarOpen}
-          onCloseMobile={() => setIsMobileSidebarOpen(false)}
-        />
-
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto bg-neutral-100 dark:bg-neutral-950">
-          <TopBar
-            title={
-              activeTab === 'home'
-                ? auth.role === 'admin'
-                  ? 'Voltra Tower Admin'
-                  : `Tenant Portal - ${room.roomNumber}`
-                : activeTab === 'floors'
-                ? selectedFloorNumber
-                  ? `Floor ${selectedFloorNumber} Rooms`
-                  : 'Building Floors (1-8)'
-                : activeTab === 'payments'
-                ? 'Building Payments Ledger'
-                : activeTab === 'calendar'
-                ? `Monthly Log - ${room.roomNumber}`
-                : 'System Settings'
-            }
-            onBack={
-              selectedFloorNumber || selectedRoomId
-                ? () => {
-                    if (selectedRoomId) setSelectedRoomId(null);
-                    else if (selectedFloorNumber) setSelectedFloorNumber(null);
-                  }
-                : undefined
-            }
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
-            resetData={store.resetToSeedData}
-            role={auth.role}
-            isDark={isDark}
-            onToggleDark={toggleDarkMode}
-          />
-
-          {activeTab === 'home' && (
-            <div className="space-y-8">
-              {auth.role === 'admin' && !selectedFloorNumber && !selectedRoomId && (
-                <>
-                  <AdminSummaryPanel
-                    summary={buildingSummary}
-                    onOpenRateConfig={() => setIsRateModalOpen(true)}
-                    unseenPaymentsCount={store.getUnseenPaymentsCount()}
-                    onViewPayments={() => {
-                      store.markPaymentsSeen();
-                      setActiveTab('payments');
-                    }}
-                  />
-
-                  <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-2xl font-serif font-black text-black dark:text-neutral-100">
-                        Building Floors (10 Floors x 200 Rooms = 2,000 Rooms)
-                      </h3>
-                      <span className="font-mono text-xs font-bold text-neutral-600 dark:text-neutral-400 bg-white dark:bg-neutral-900 border border-black dark:border-neutral-200 px-2.5 py-1 rounded-lg">
-                        Click any floor to view rooms
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                      {buildingSummary.perFloorSummaries.map((floor) => (
-                        <FloorCard
-                          key={floor.floorNumber}
-                          summary={floor}
-                          onSelectFloor={(fNum) => {
-                            setSelectedFloorNumber(fNum);
-                            setActiveTab('floors');
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {(auth.role === 'tenant' || selectedRoomId) && (
-                <div className="space-y-6">
-                  <TrainerStyleInfoCard
-                    room={room}
-                    tenant={tenant}
-                    stats={roomStats}
-                    onOpenCalendar={() => setActiveTab('calendar')}
-                    onOpenTenantProfile={() => setIsTenantProfileModalOpen(true)}
-                    onLogUsage={() => handleOpenDayModalForDate(monthlyDateStr, monthEntry)}
-                    onOpenRateOverride={() => setIsRoomRateOverrideModalOpen(true)}
-                    role={auth.role}
-                  />
-
-                  <MonthlyReadingPanel
-                    year={calYear}
-                    month={calMonth}
-                    onMonthChange={(y, m) => {
-                      setCalYear(y);
-                      setCalMonth(m);
-                    }}
-                    entry={monthEntry}
-                    onOpenEntry={() => handleOpenDayModalForDate(monthlyDateStr, monthEntry)}
-                    appliedRate={roomStats.appliedRate}
-                  />
-
-                  <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-5 shadow-none">
-                    <div className="flex items-center justify-between pb-3 border-b-2 border-black dark:border-neutral-700 mb-4">
-                      <h3 className="font-serif font-black text-xl text-black dark:text-neutral-100">
-                        Recent Electricity and Payment Logs ({room.roomNumber})
-                      </h3>
-                      <button
-                        onClick={() => handleOpenDayModalForDate(monthlyDateStr, monthEntry)}
-                        className="bg-black dark:bg-neutral-100 text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-white font-mono font-bold text-xs px-3 py-1.5 rounded-lg border border-black dark:border-neutral-200 cursor-pointer"
-                      >
-                        + Log This Month
-                      </button>
-                    </div>
-
-                    <div className="overflow-x-auto border-2 border-black dark:border-neutral-200 rounded-xl">
-                      <table className="w-full text-left font-mono text-xs border-collapse">
-                        <thead>
-                          <tr className="bg-neutral-400 border-b-2 border-black text-black font-bold uppercase">
-                            <th className="p-3 border-r-2 border-black">Date</th>
-                            <th className="p-3 border-r-2 border-black">Power Used</th>
-                            <th className="p-3 border-r-2 border-black">Calculated Cost</th>
-                            <th className="p-3 border-r-2 border-black">Amount Paid</th>
-                            <th className="p-3 border-r-2 border-black">Note</th>
-                            <th className="p-3 text-center">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {roomEntries.length === 0 ? (
-                            <tr>
-                              <td
-                                colSpan={6}
-                                className="p-6 text-center text-neutral-500 dark:text-neutral-400 font-bold bg-white dark:bg-neutral-900"
-                              >
-                                No entries logged for this room yet. Click on any calendar day to add one.
-                              </td>
-                            </tr>
-                          ) : (
-                            roomEntries
-                              .sort((a, b) => b.date.localeCompare(a.date))
-                              .slice(0, 10)
-                              .map((entry, idx) => {
-                                const cost = entry.unitsUsed * roomStats.appliedRate;
-                                return (
-                                  <tr
-                                    key={entry.id}
-                                    className={`border-b border-black dark:border-neutral-700 ${
-                                      idx % 2 === 0 ? 'bg-white dark:bg-neutral-900' : 'bg-neutral-50 dark:bg-neutral-800'
-                                    }`}
-                                  >
-                                    <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">
-                                      {entry.date}
-                                    </td>
-                                    <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">
-                                      {formatKwh(entry.unitsUsed)}
-                                    </td>
-                                    <td className="p-3 border-r-2 border-black dark:border-neutral-700 text-neutral-700 dark:text-neutral-300">
-                                      {formatCurrency(cost)}
-                                    </td>
-                                    <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">
-                                      {formatCurrency(entry.amountPaid)}
-                                    </td>
-                                    <td className="p-3 border-r-2 border-black dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 truncate max-w-[200px]">
-                                      {entry.note || '-'}
-                                    </td>
-                                    <td className="p-2 text-center">
-                                      <button
-                                        onClick={() =>
-                                          handleOpenDayModalForDate(entry.date, entry)
-                                        }
-                                        className="bg-white dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700 text-black dark:text-neutral-100 border border-black dark:border-neutral-600 p-1 px-2 rounded font-bold text-[10px] cursor-pointer"
-                                      >
-                                        Edit
-                                      </button>
-                                    </td>
-                                  </tr>
-                                );
-                              })
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'floors' && (
-            <div>
-              {selectedFloorNumber ? (
-                <RoomGrid
-                  floorNumber={selectedFloorNumber}
-                  rooms={store.getRooms().filter((r) => r.floorNumber === selectedFloorNumber)}
-                  tenants={store.getTenants()}
-                  getRoomMonthlyStats={(rId) =>
-                    store.getRoomMonthlyStats(rId, calYear, calMonth)
-                  }
-                  onSelectRoom={(rId) => {
-                    setSelectedRoomId(rId);
-                    setActiveTab('home');
-                  }}
-                  onBackToFloors={() => setSelectedFloorNumber(null)}
-                />
-              ) : (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="text-3xl font-serif font-black text-black dark:text-neutral-100">
-                        Select a Floor to View its 200 Rooms
-                      </h2>
-                      <p className="font-mono text-xs text-neutral-600 dark:text-neutral-400">
-                        Total 10 Floors - 2,000 Total Units in Voltra Tower
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {buildingSummary.perFloorSummaries.map((floor) => (
-                      <FloorCard
-                        key={floor.floorNumber}
-                        summary={floor}
-                        onSelectFloor={(fNum) => setSelectedFloorNumber(fNum)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'payments' && (
-            <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-6 space-y-6">
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pb-4 border-b-2 border-black dark:border-neutral-700">
-                <div>
-                  <h2 className="text-2xl sm:text-3xl font-serif font-black text-black dark:text-neutral-100">
-                    Building Financial and Payment Ledger
-                  </h2>
-                  <p className="font-mono text-xs text-neutral-600 dark:text-neutral-400">
-                    Collection status for {calMonth}/{calYear} across all 10 floors
-                  </p>
-                </div>
-
-                <div className="bg-white border-2 border-black p-3 rounded-xl font-mono text-xs font-bold text-black">
-                  Collected: {formatCurrency(buildingSummary.totalCollectedThisMonth)} | Outstanding:{' '}
-                  <span className="text-black dark:text-neutral-100">
-                    {formatCurrency(buildingSummary.totalOutstandingThisMonth)}
-                  </span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 font-mono text-xs">
-                <div className="bg-neutral-800 border-2 border-black rounded-xl p-4">
-                  <div className="font-bold uppercase text-[10px] text-white">Paid in Full</div>
-                  <div className="text-3xl font-black text-white">{buildingSummary.paidRoomsCount} Rooms</div>
-                </div>
-
-                <div className="bg-neutral-400 border-2 border-black rounded-xl p-4">
-                  <div className="font-bold uppercase text-[10px] text-black">Partial Payment</div>
-                  <div className="text-3xl font-black text-black">{buildingSummary.partialRoomsCount} Rooms</div>
-                </div>
-
-                <div className="bg-black border-2 border-black rounded-xl p-4">
-                  <div className="font-bold uppercase text-[10px] text-white">Overdue Rooms</div>
-                  <div className="text-3xl font-black text-white">{buildingSummary.overdueRoomsCount} Rooms</div>
-                </div>
-              </div>
-
-              <div className="border-2 border-black dark:border-neutral-200 rounded-xl overflow-x-auto">
-                <table className="w-full text-left font-mono text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-neutral-400 border-b-2 border-black uppercase font-bold text-black">
-                      <th className="p-3 border-r-2 border-black">Floor</th>
-                      <th className="p-3 border-r-2 border-black">Power Used (kWh)</th>
-                      <th className="p-3 border-r-2 border-black">Total Collected</th>
-                      <th className="p-3 border-r-2 border-black">Outstanding</th>
-                      <th className="p-3 border-r-2 border-black">Rate (RWF/kWh)</th>
-                      <th className="p-3 text-center">Floor Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {buildingSummary.perFloorSummaries.map((f) => (
-                      <tr key={f.floorNumber} className="border-b border-black dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 bg-white dark:bg-neutral-900">
-                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">{getFloorLabel(f.floorNumber)}</td>
-                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 text-black dark:text-neutral-100">{formatKwh(f.totalUnits)}</td>
-                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">
-                          {formatCurrency(f.totalCollected)}
-                        </td>
-                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 font-bold text-black dark:text-neutral-100">
-                          {formatCurrency(f.totalOutstanding)}
-                        </td>
-                        <td className="p-3 border-r-2 border-black dark:border-neutral-700 text-black dark:text-neutral-100">{formatCurrency(f.ratePerUnit)}</td>
-                        <td className="p-3 text-center">
-                          <span className="bg-black dark:bg-neutral-100 text-white dark:text-black px-2 py-1 rounded text-[10px] font-bold">
-                            {f.paidCount}/{f.occupiedRooms} Paid
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            
-              <PaymentsLedgerPanel invoices={invoices} payments={payments} />
-            </div>
-          )}
-
-          {activeTab === 'calendar' && (
-            <div className="space-y-6">
-              <MonthlyReadingPanel
-                year={calYear}
-                month={calMonth}
-                onMonthChange={(y, m) => {
-                  setCalYear(y);
-                  setCalMonth(m);
-                }}
-                entry={monthEntry}
-                onOpenEntry={() => handleOpenDayModalForDate(monthlyDateStr, monthEntry)}
-                appliedRate={roomStats.appliedRate}
-              />
-            </div>
-          )}
-
-          {activeTab === 'settings' && (
-            <div className="bg-white dark:bg-neutral-900 border-3 border-black dark:border-neutral-200 rounded-2xl p-6 space-y-6 font-mono text-xs">
-              <div className="pb-4 border-b-2 border-black dark:border-neutral-700">
-                <h2 className="text-3xl font-serif font-black text-black dark:text-neutral-100">
-                  {auth.role === 'admin' ? 'System Settings and Controls' : 'Settings'}
-                </h2>
-                <p className="text-neutral-600 dark:text-neutral-400">
-                  {auth.role === 'admin' ? 'Voltra Tower Rate and Seed Configuration' : 'Manage your profile'}
-                </p>
-              </div>
-
-              {auth.role === 'admin' ? (
-                <>
-                  <div className="bg-white border-2 border-black rounded-xl p-5 space-y-3 text-black">
-                    <h3 className="font-bold text-sm uppercase">
-                      Utility Rate Settings
-                    </h3>
-                    <p>Current Building Default Rate: {formatCurrency(buildingSummary.defaultRatePerUnit)} / kWh</p>
-                    <button
-                      onClick={() => setIsRateModalOpen(true)}
-                      className="bg-black text-white hover:bg-neutral-800 font-bold px-4 py-2 rounded-lg border border-black cursor-pointer"
-                    >
-                      Configure Rate Tariff
-                    </button>
-                  </div>
-
-                  <div className="bg-neutral-200 dark:bg-neutral-800 border-2 border-black rounded-xl p-5 space-y-3 text-black dark:text-neutral-100">
-                    <h3 className="font-bold text-sm uppercase">
-                      Building Reset
-                    </h3>
-                    <p>
-                      Resets to an empty 10-floor (basement + ground + 1-8), 200-room-per-floor building
-                      shell with no tenants and no usage history. Use this only when starting over.
-                    </p>
-                    <button
-                      onClick={() => {
-                        if (confirm('Reset building? All current tenants and logged entries will be cleared.')) {
-                          store.resetToSeedData();
-                          alert('Building reset to an empty 2,000-room shell.');
-                        }
-                      }}
-                      className="bg-black text-white hover:bg-neutral-800 font-bold px-4 py-2 rounded-lg border border-black cursor-pointer"
-                    >
-                      Reset Building Data
-                    </button>
-                  </div>
-
-                  <div className="bg-neutral-200 dark:bg-neutral-800 border-2 border-black dark:border-neutral-200 rounded-xl p-5 space-y-3 text-black dark:text-neutral-100">
-                    <h3 className="font-bold text-sm uppercase">
-                      Display
-                    </h3>
-                    <p>Current mode: {isDark ? 'Dark' : 'Light'}</p>
-                    <button
-                      onClick={toggleDarkMode}
-                      className="bg-black dark:bg-neutral-100 text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-white font-bold px-4 py-2 rounded-lg border border-black dark:border-neutral-200 cursor-pointer"
-                    >
-                      Switch to {isDark ? 'Light' : 'Dark'} Mode
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="bg-white border-2 border-black rounded-xl p-5 space-y-3 text-black">
-                  <h3 className="font-bold text-sm uppercase">
-                    Change Profile
-                  </h3>
-                  <p>Update your name, phone number, or move-in date.</p>
-                  <button
-                    onClick={() => setIsTenantProfileModalOpen(true)}
-                    className="bg-black text-white hover:bg-neutral-800 font-bold px-4 py-2 rounded-lg border border-black cursor-pointer"
-                  >
-                    Change Profile
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </main>
+    <div className="relative">
+      <RoomEntryForm onSubmit={gate.enterRoom} />
+      <div className="fixed bottom-4 left-0 right-0 flex flex-col items-center gap-2 px-4">
+        {signedInNotAdmin && (
+          <p className="font-mono text-[11px] text-red-600 bg-white border-2 border-black rounded-xl px-3 py-2 text-center">
+            {firebaseUser?.email} is not an admin on this building.
+          </p>
+        )}
+        <button
+          onClick={signedInNotAdmin ? handleLogout : handleAdminSignIn}
+          disabled={signingIn}
+          className="px-4 py-2 bg-white hover:bg-neutral-100 disabled:opacity-50 border-2 border-black rounded-xl font-mono font-bold text-xs text-black cursor-pointer"
+        >
+          {signingIn ? 'Opening...' : signedInNotAdmin ? 'Sign out' : 'I am the admin'}
+        </button>
       </div>
-
-      <DayEntryModal
-        isOpen={isDayEntryModalOpen}
-        onClose={() => setIsDayEntryModalOpen(false)}
-        dateStr={selectedDateStr}
-        entries={roomEntries.filter((e) => e.date === selectedDateStr)}
-        room={room}
-        rateConfigs={store.getRateConfigs()}
-        onSave={handleSaveUsageEntry}
-        onDelete={handleDeleteUsageEntry}
-        roomNumber={room.roomNumber}
-      />
-
-      <RateConfigModal
-        isOpen={isRateModalOpen}
-        onClose={() => setIsRateModalOpen(false)}
-        currentRates={store.getRateConfigs()}
-        onSaveRate={handleSaveRateConfig}
-      />
-
-      <RoomRateOverrideModal
-        isOpen={isRoomRateOverrideModalOpen}
-        onClose={() => setIsRoomRateOverrideModalOpen(false)}
-        room={room}
-        rateConfigs={store.getRateConfigs()}
-        onSave={handleSaveRoomRateOverride}
-      />
-
-      <TenantProfileModal
-        isOpen={isTenantProfileModalOpen}
-        onClose={() => setIsTenantProfileModalOpen(false)}
-        room={room}
-        tenant={tenant}
-        lockedEmail={tenant?.email}
-        onAssignTenant={handleAssignTenant}
-        onMoveTenant={tenant ? handleOpenMoveTenantModal : undefined}
-        onVacateRoom={tenant ? handleVacateRoom : undefined}
-      />
-
-
-      <SelectRoomModal
-        isOpen={isMoveTenantModalOpen}
-        onClose={() => setIsMoveTenantModalOpen(false)}
-        rooms={store.getRooms().filter((r) => !r.tenantId)}
-        onSelectRoom={handleSelectMoveDestination}
-      />
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
