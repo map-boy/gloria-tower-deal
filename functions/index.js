@@ -2,6 +2,8 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onMessagePublished } = require("firebase-functions/v2/pubsub");
+const { CloudBillingClient } = require("@google-cloud/billing");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
@@ -205,3 +207,56 @@ exports.cleanupScreenshotsNow = onCall(async (request) => {
   }
   return deleteExpiredScreenshots();
 });
+
+// --- Billing kill switch: never spend money, full stop ---
+// A Cloud Billing budget publishes to the Pub/Sub topic below every time it
+// re-evaluates spend. The moment actual spend goes over the budget, this
+// detaches the billing account from the project.
+//
+// That is a hard stop, not a throttle: functions stop serving, tenants cannot
+// submit, and the admin cannot log in. Nothing turns itself back on -- the
+// project stays dead until a human re-attaches billing in the console. That
+// is the intent. Crashing is the desired outcome; a bill is not.
+//
+// Setup this needs (once, outside this file):
+//   1. A Pub/Sub topic named exactly BUDGET_TOPIC below.
+//   2. A budget in Cloud Billing wired to publish to that topic.
+//   3. The function's runtime service account granted Billing Account
+//      Administrator on the billing account, or it cannot detach it.
+const BUDGET_TOPIC = "billing-kill-switch";
+
+exports.stopBillingWhenBudgetExceeded = onMessagePublished(
+  { topic: BUDGET_TOPIC, maxInstances: 1, retryCount: 0 },
+  async (event) => {
+    const notice = event.data.message.json || {};
+    const spend = Number(notice.costAmount || 0);
+    const budget = Number(notice.budgetAmount || 0);
+
+    // The budget publishes on every evaluation, most of them well under the
+    // limit. Only act when real spend has actually passed it.
+    if (!budget || spend <= budget) {
+      console.log(`Spend ${spend} of ${budget} -- under budget, billing left on.`);
+      return;
+    }
+
+    const projectName = `projects/${process.env.GCLOUD_PROJECT}`;
+    const billing = new CloudBillingClient();
+
+    const [info] = await billing.getProjectBillingInfo({ name: projectName });
+    if (!info.billingEnabled) {
+      console.log("Billing is already disabled, nothing to do.");
+      return;
+    }
+
+    // Empty billingAccountName is what detaches the account.
+    await billing.updateProjectBillingInfo({
+      name: projectName,
+      projectBillingInfo: { billingAccountName: "" },
+    });
+
+    console.warn(
+      `BILLING DISABLED: spend ${spend} passed budget ${budget}. ` +
+        `The project is now stopped and must be re-enabled by hand.`
+    );
+  }
+);
