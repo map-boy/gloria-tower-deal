@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Room, Submission } from '../../1_core/domain/types';
 import { formatCurrency, formatDateTime } from '../../1_core/utils/formatters';
+import { setRoomPassword } from '../../2_backend/services/roomPasswordService';
 import { SubmissionCard } from './SubmissionCard';
 
 interface RoomDetailPanelProps {
@@ -33,6 +34,9 @@ export const RoomDetailPanel: React.FC<RoomDetailPanelProps> = ({
   const [hasElectricity, setHasElectricity] = useState(room.hasElectricity);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
 
   const confirmedTotal = submissions.reduce((sum, s) => sum + (s.amountConfirmed ?? 0), 0);
   const latestReading = submissions.find((s) => s.cashPowerReading)?.cashPowerReading;
@@ -58,6 +62,26 @@ export const RoomDetailPanel: React.FC<RoomDetailPanelProps> = ({
   const handleFree = async () => {
     if (!window.confirm('Free this room so someone else can claim the number?')) return;
     await onFreeRoom(room.id);
+  };
+
+  // A tenant who cleared their phone or forgot their password has no other way
+  // back into their own room, so this is the admin's rescue button.
+  const handleResetPassword = async () => {
+    if (newPassword.trim().length < 4) {
+      setResetMessage('Password must be at least 4 characters.');
+      return;
+    }
+    setResetting(true);
+    setResetMessage('');
+    try {
+      await setRoomPassword(room.id, newPassword.trim());
+      setResetMessage(`Done. Tell the tenant their new password is: ${newPassword.trim()}`);
+      setNewPassword('');
+    } catch (e: any) {
+      setResetMessage(e?.message || 'Could not reset the password.');
+    } finally {
+      setResetting(false);
+    }
   };
 
   const inputClass =
@@ -147,6 +171,32 @@ export const RoomDetailPanel: React.FC<RoomDetailPanelProps> = ({
                 <div className="text-[10px] uppercase text-neutral-500">Latest reading</div>
                 <div className="font-bold text-sm break-all">{latestReading || '--'}</div>
               </div>
+            </div>
+
+            <div className="border-2 border-black rounded-xl p-3 space-y-2">
+              <div className="text-[10px] uppercase font-bold">Reset room password</div>
+              <p className="text-[10px] text-neutral-600">
+                Use this when a tenant is locked out. They get back in with their phone number
+                and the new password.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="New password"
+                  className="flex-1 bg-white text-black text-xs p-2.5 border-2 border-black rounded-xl focus:outline-none"
+                />
+                <button
+                  onClick={handleResetPassword}
+                  disabled={resetting}
+                  className="px-3 bg-black text-white hover:bg-neutral-800 disabled:opacity-50 font-bold text-xs rounded-xl border-2 border-black cursor-pointer"
+                >
+                  {resetting ? '...' : 'Reset'}
+                </button>
+              </div>
+              {resetMessage && (
+                <p className="text-[10px] text-neutral-800 break-all">{resetMessage}</p>
+              )}
             </div>
 
             {room.active && (

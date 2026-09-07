@@ -71,9 +71,10 @@ export class StorageService {
         this.rooms = snap.exists() ? [snap.data() as Room] : [];
         this.notifyListeners();
       });
-      // Filtering on tenantUid (not roomId) is what the security rules can
-      // prove, so the query is accepted for a tenant.
-      const q = query(submissionsCollectionRef, where('tenantUid', '==', uid));
+      // Scoped by room, not by browser identity: a tenant who logs back in
+      // from a new phone gets a fresh uid, and their history has to follow the
+      // room rather than the device.
+      const q = query(submissionsCollectionRef, where('roomId', '==', roomId));
       this.submissionsUnsub = onSnapshot(q, (snap) => {
         this.submissions = snap.docs.map((d) => d.data() as Submission);
         this.notifyListeners();

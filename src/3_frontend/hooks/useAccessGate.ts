@@ -29,22 +29,26 @@ function writeStored(data: StoredAccess) {
 
 export interface ClaimRoomInput {
   roomNumber: string;
-  tenantName: string;
-  tenantPhone?: string;
-  hasElectricity: boolean;
+  tenantName?: string;
+  tenantPhone: string;
+  hasElectricity?: boolean;
+  password: string;
 }
 
 export interface ClaimRoomResult {
   ok: boolean;
   roomId: string;
-  reason?: 'taken_by_other';
+  created?: boolean;
+  reason?: 'taken_by_other' | 'wrong_credentials';
 }
 
-// Tenants never log in with email/password. Every browser gets a Firebase
-// anonymous uid; claiming a room stamps that uid onto the room doc as
-// tenantUid, and Firestore rules key all tenant-scoped reads/writes off
-// request.auth.uid == room.tenantUid. localStorage only caches the
-// roomId/name for instant UI on reload -- it grants no access by itself.
+// Tenants never open an account. Every browser gets a Firebase anonymous uid;
+// claiming a room stamps that uid onto the room doc as tenantUid, and
+// Firestore rules key all tenant-scoped reads/writes off it. Because that uid
+// dies with the browser's storage, the room password is what lets a tenant
+// return from a new phone -- claimRoom re-points the room at their new uid.
+// localStorage only caches the roomId/name for instant UI on reload; it grants
+// no access by itself.
 export function useAccessGate() {
   const [user, setUser] = useState<User | null>(null);
   const [access, setAccess] = useState<StoredAccess>(readStored());
@@ -76,7 +80,7 @@ export function useAccessGate() {
           role: 'tenant',
           roomId: data.roomId,
           roomNumber: input.roomNumber,
-          tenantName: input.tenantName,
+          tenantName: input.tenantName ?? '',
         };
         writeStored(next);
         setAccess(next);

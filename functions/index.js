@@ -8,6 +8,7 @@ const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
 const { getMessaging } = require("firebase-admin/messaging");
+const crypto = require("crypto");
 
 // Hard ceiling on what this project can ever cost. maxInstances is the one
 // that matters: without it a bug or an abusive client can spin up hundreds of
@@ -42,6 +43,39 @@ function slugifyRoomNumber(roomNumber) {
     .replace(/[^a-z0-9-]/g, "");
 }
 
+// Room passwords. A tenant's browser identity is thrown away when they clear
+// their data or pick up a different phone, so the password is what actually
+// proves "this is my room" -- without it a logged-out tenant is locked out
+// forever and only the admin can rescue them.
+//
+// Hashes live in roomSecrets/{roomId}, a collection no client can read at all,
+// so not even the admin sees a tenant's password.
+const MIN_PASSWORD_LENGTH = 4;
+
+function hashPassword(password, salt) {
+  return crypto.scryptSync(String(password), salt, 64).toString("hex");
+}
+
+function buildSecret(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  return { salt, hash: hashPassword(password, salt), updatedAt: new Date().toISOString() };
+}
+
+// Phones get typed differently every time (+250..., 07..., spaces), so compare
+// only the last 9 digits -- the part that actually identifies the line.
+function normalizePhone(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  return digits.length > 9 ? digits.slice(-9) : digits;
+}
+
+function passwordMatches(password, secret) {
+  if (!secret || !secret.salt || !secret.hash) return false;
+  const candidate = Buffer.from(hashPassword(password, secret.salt), "hex");
+  const stored = Buffer.from(secret.hash, "hex");
+  if (candidate.length !== stored.length) return false;
+  return crypto.timingSafeEqual(candidate, stored);
+}
+
 async function isAdmin(auth) {
   if (!auth) return false;
   const email = auth.token && auth.token.email ? auth.token.email.toLowerCase() : null;
@@ -50,21 +84,28 @@ async function isAdmin(auth) {
   return snap.exists;
 }
 
-// --- Tenant enters a room: number on the door + their name, nothing else ---
-// No admin approval step. The first anonymous uid to claim a room number owns
-// it; anyone else typing the same number is told to talk to the admin.
+// --- Tenant enters a room: number on the door, their name, and a password ---
+// No admin approval. The first person to claim a room number owns it and sets
+// its password; coming back later -- from any phone, after any logout -- means
+// typing that same password, which re-points the room at the new browser.
 exports.claimRoom = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Sign-in required");
   }
   const uid = request.auth.uid;
-  const { roomNumber, tenantName, tenantPhone, hasElectricity } = request.data || {};
+  const { roomNumber, tenantName, tenantPhone, hasElectricity, password } = request.data || {};
 
   if (!roomNumber || !String(roomNumber).trim()) {
     throw new HttpsError("invalid-argument", "Room number is required");
   }
-  if (!tenantName || !String(tenantName).trim()) {
-    throw new HttpsError("invalid-argument", "Your name is required");
+  if (!password || String(password).length < MIN_PASSWORD_LENGTH) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
+    );
+  }
+  if (!normalizePhone(tenantPhone)) {
+    throw new HttpsError("invalid-argument", "Phone number is required");
   }
 
   const roomId = slugifyRoomNumber(roomNumber);
@@ -73,43 +114,85 @@ exports.claimRoom = onCall(async (request) => {
   }
 
   const roomRef = db.doc(`rooms/${roomId}`);
+  const secretRef = db.doc(`roomSecrets/${roomId}`);
   const now = new Date().toISOString();
 
-  const result = await db.runTransaction(async (tx) => {
-    const snap = await tx.get(roomRef);
+  return db.runTransaction(async (tx) => {
+    const [roomSnap, secretSnap] = await tx.getAll(roomRef, secretRef);
+    const existing = roomSnap.exists ? roomSnap.data() : null;
+    const name = String(tenantName || "").trim() || (existing ? existing.tenantName : "");
+    if (!name) {
+      throw new HttpsError("invalid-argument", "Your name is required");
+    }
+
     const fields = {
       roomNumber: String(roomNumber).trim(),
-      tenantName: String(tenantName).trim(),
-      tenantPhone: tenantPhone ? String(tenantPhone).trim() : "",
-      hasElectricity: hasElectricity !== false,
+      tenantName: name,
+      tenantPhone: String(tenantPhone).trim(),
+      hasElectricity:
+        hasElectricity === undefined && existing
+          ? existing.hasElectricity
+          : hasElectricity !== false,
       updatedAt: now,
     };
 
-    if (!snap.exists) {
-      tx.set(roomRef, {
-        id: roomId,
-        ...fields,
-        tenantUid: uid,
-        active: true,
-        createdAt: now,
-      });
+    // Nobody has this room number yet -- claim it and set its password.
+    if (!roomSnap.exists) {
+      tx.set(roomRef, { id: roomId, ...fields, tenantUid: uid, active: true, createdAt: now });
+      tx.set(secretRef, buildSecret(password));
+      return { ok: true, roomId, created: true };
+    }
+
+    const room = existing;
+
+    // A room claimed before passwords existed. Only the browser that already
+    // owns it can set one; anyone else still has to see the admin.
+    if (!secretSnap.exists) {
+      if (room.tenantUid && room.tenantUid !== uid) {
+        return { ok: false, roomId, reason: "taken_by_other" };
+      }
+      tx.update(roomRef, { ...fields, tenantUid: uid, active: true });
+      tx.set(secretRef, buildSecret(password));
       return { ok: true, roomId };
     }
 
-    const room = snap.data();
+    // Coming back needs two things they know: the phone on the room and the
+    // password. The room number alone is public -- it is written on the door.
+    // A room with no phone on file can only be checked on the password.
+    const storedPhone = normalizePhone(room.tenantPhone);
+    const phoneOk = !storedPhone || storedPhone === normalizePhone(tenantPhone);
 
-    // Someone else is living in this room number right now.
-    if (room.active && room.tenantUid && room.tenantUid !== uid) {
-      return { ok: false, roomId, reason: "taken_by_other" };
+    if (!passwordMatches(password, secretSnap.data()) || !phoneOk) {
+      return { ok: false, roomId, reason: "wrong_credentials" };
     }
 
-    // Same tenant coming back (new phone, cleared browser is a new uid but
-    // an admin-freed room is claimable again) -- refresh their details.
+    // Checks out: hand the room to whatever browser they are on now.
     tx.update(roomRef, { ...fields, tenantUid: uid, active: true });
     return { ok: true, roomId };
   });
+});
 
-  return result;
+// Admin resets a room password for a tenant who forgot theirs.
+exports.setRoomPassword = onCall(async (request) => {
+  if (!(await isAdmin(request.auth))) {
+    throw new HttpsError("permission-denied", "Admin only");
+  }
+  const { roomId, password } = request.data || {};
+  if (!roomId) {
+    throw new HttpsError("invalid-argument", "roomId required");
+  }
+  if (!password || String(password).length < MIN_PASSWORD_LENGTH) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
+    );
+  }
+  const roomSnap = await db.doc(`rooms/${roomId}`).get();
+  if (!roomSnap.exists) {
+    throw new HttpsError("not-found", "Room not found");
+  }
+  await db.doc(`roomSecrets/${roomId}`).set(buildSecret(password));
+  return { ok: true };
 });
 
 // --- Admin gets a bell + a push the moment a tenant submits ---

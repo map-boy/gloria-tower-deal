@@ -32,7 +32,7 @@ service cloud.firestore {
     // A tenant reads and writes only their own submissions. Confirming a
     // payment is admin-only -- a tenant can report, never approve.
     match /submissions/{submissionId} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.tenantUid == request.auth.uid);
+      allow read: if isAdmin() || ownsRoom(resource.data.roomId);
       allow create: if isAdmin() ||
         (isSignedIn() &&
          request.resource.data.tenantUid == request.auth.uid &&
@@ -43,6 +43,12 @@ service cloud.firestore {
          request.resource.data.amountReported is number &&
          request.resource.data.amountReported >= 0);
       allow update, delete: if isAdmin();
+    }
+
+    // Room passwords. No client reads or writes these, ever -- only the
+    // claimRoom and setRoomPassword functions touch them, via the admin SDK.
+    match /roomSecrets/{roomId} {
+      allow read, write: if false;
     }
 
     // Written by the onSubmissionCreated function; only admins ever see them.
