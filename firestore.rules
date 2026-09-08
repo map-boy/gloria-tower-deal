@@ -5,13 +5,25 @@ service cloud.firestore {
 
     function isBootstrapAdmin() {
       return isSignedIn() && 'email' in request.auth.token &&
-        request.auth.token.email.lower() in ['techubwenge@gmail.com', 'uwimbabazigloria05@gmail.com'];
+        request.auth.token.email.lower() in [
+          'techubwenge@gmail.com',
+          'uwimbabazigloria05@gmail.com',
+          'abdullazackniyigaba@gmail.com'
+        ];
+    }
+
+    // Granted by email, so the grant is already waiting the first time the
+    // person signs in with Google.
+    function isGrantedAdmin() {
+      return isSignedIn() && 'email' in request.auth.token &&
+        exists(/databases/$(database)/documents/adminEmails/$(request.auth.token.email.lower()));
     }
 
     // Admin has full rights everywhere below: read anything, edit anything.
     function isAdmin() {
       return isSignedIn() &&
         (isBootstrapAdmin() ||
+         isGrantedAdmin() ||
          exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
     }
 
@@ -65,6 +77,13 @@ service cloud.firestore {
     match /deviceTokens/{tokenId} {
       allow read: if false;
       allow write: if isSignedIn();
+    }
+
+    // The admin panel lists these. Writes go through addAdmin/removeAdmin so
+    // the built-in owners cannot be deleted and emails are validated.
+    match /adminEmails/{email} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     match /admins/{uid} {

@@ -28,9 +28,12 @@ initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
 
+// Hard-coded owners. These cannot be removed from inside the app, which is
+// what stops one admin from locking everyone else out.
 const BOOTSTRAP_ADMIN_EMAILS = [
   "techubwenge@gmail.com",
   "uwimbabazigloria05@gmail.com",
+  "abdullazackniyigaba@gmail.com",
 ];
 
 // Rooms are never hard-coded. A room doc is born the moment a tenant types
@@ -90,10 +93,22 @@ function passwordMatches(password, secret) {
   return crypto.timingSafeEqual(candidate, stored);
 }
 
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+// Access is granted to an email, not to a uid: the person being added has no
+// uid until the first time they sign in with Google. Their grant is waiting
+// for them when they do.
 async function isAdmin(auth) {
   if (!auth) return false;
-  const email = auth.token && auth.token.email ? auth.token.email.toLowerCase() : null;
+  const email = auth.token ? normalizeEmail(auth.token.email) : "";
   if (email && BOOTSTRAP_ADMIN_EMAILS.includes(email)) return true;
+  if (email && (await db.doc(`adminEmails/${email}`).get()).exists) return true;
   const snap = await db.doc(`admins/${auth.uid}`).get();
   return snap.exists;
 }
@@ -256,6 +271,53 @@ exports.setRoomPassword = onCall(async (request) => {
     throw new HttpsError("not-found", "Room not found");
   }
   await db.doc(`roomSecrets/${roomId}`).set(buildSecret(password));
+  return { ok: true };
+});
+
+// Any admin can make another email an admin. There is no owner tier above
+// admin on purpose -- the building has a few trusted people, and waiting on
+// one specific person to be reachable is the kind of overhead this app exists
+// to remove. The hard-coded owners above are the floor that keeps that safe.
+exports.addAdmin = onCall(async (request) => {
+  if (!(await isAdmin(request.auth))) {
+    throw new HttpsError("permission-denied", "Admin only");
+  }
+  const email = normalizeEmail((request.data || {}).email);
+  if (!isValidEmail(email)) {
+    throw new HttpsError("invalid-argument", "That does not look like an email address");
+  }
+  if (BOOTSTRAP_ADMIN_EMAILS.includes(email)) {
+    return { ok: true, alreadyAdmin: true };
+  }
+
+  await db.doc(`adminEmails/${email}`).set({
+    email,
+    addedBy: normalizeEmail(request.auth.token.email) || request.auth.uid,
+    addedAt: new Date().toISOString(),
+  });
+  return { ok: true };
+});
+
+exports.removeAdmin = onCall(async (request) => {
+  if (!(await isAdmin(request.auth))) {
+    throw new HttpsError("permission-denied", "Admin only");
+  }
+  const email = normalizeEmail((request.data || {}).email);
+  const caller = normalizeEmail(request.auth.token.email);
+
+  // Built-in owners are the floor: nothing in the app can take them away.
+  if (BOOTSTRAP_ADMIN_EMAILS.includes(email)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "This is a built-in admin and cannot be removed here"
+    );
+  }
+  // Removing yourself would drop you out of the panel mid-click.
+  if (email && email === caller) {
+    throw new HttpsError("failed-precondition", "You cannot remove your own access");
+  }
+
+  await db.doc(`adminEmails/${email}`).delete();
   return { ok: true };
 });
 

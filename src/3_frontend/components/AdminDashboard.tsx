@@ -14,6 +14,7 @@ import {
   getStatusBadgeStyle,
   getStatusLabel,
 } from '../../1_core/utils/formatters';
+import { AdminsPanel } from './AdminsPanel';
 import { NotificationBell } from './NotificationBell';
 import { ReviewSubmissionModal } from './ReviewSubmissionModal';
 import { RoomDetailPanel } from './RoomDetailPanel';
@@ -63,7 +64,7 @@ interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-type Tab = 'inbox' | 'rooms';
+type Tab = 'inbox' | 'rooms' | 'admins';
 
 // Admin sees three things and nothing else: every room registered, what each
 // tenant sent, and who still needs marking.
@@ -149,15 +150,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         ) : (
           <>
             <div className="flex gap-2 mb-4">
-              {(['inbox', 'rooms'] as Tab[]).map((t) => (
+              {(['inbox', 'rooms', 'admins'] as Tab[]).map((t) => (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
-                  className={`flex-1 py-2.5 rounded-xl border-2 border-black font-bold text-xs uppercase cursor-pointer ${
+                  className={`flex-1 py-2.5 rounded-xl border-2 border-black font-bold text-[11px] uppercase cursor-pointer ${
                     tab === t ? 'bg-black text-white' : 'bg-white text-black'
                   }`}
                 >
-                  {t === 'inbox' ? `Payments (${pending.length} new)` : `Rooms (${rooms.length})`}
+                  {t === 'inbox'
+                    ? `Payments (${pending.length})`
+                    : t === 'rooms'
+                    ? `Rooms (${rooms.length})`
+                    : 'Admins'}
                 </button>
               ))}
             </div>
@@ -181,6 +186,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 )}
               </div>
             )}
+
+            {tab === 'admins' && <AdminsPanel currentAdminEmail={adminLabel} />}
 
             {tab === 'rooms' && (
               <div className="space-y-3">
