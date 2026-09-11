@@ -201,7 +201,7 @@ export const RecoveryPortal: React.FC<{
 
       {tab === 'alerts' && (
         <div className="space-y-3">
-          <SmsPanel smsBalance={health?.smsBalance} />
+          <SmsPanel smsBalance={health?.smsBalance} rooms={rooms} />
           <Card className="space-y-2">
             <div className="font-black text-sm">System watchdog</div>
             {health ? (

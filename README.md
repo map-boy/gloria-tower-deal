@@ -100,9 +100,9 @@ right, and `MIC_SENDER_ID` (max 11 characters, default `MICTOWER`).
 
 Two things about this provider shape the code:
 
-- **Messages cost 10 RWF from a prepaid wallet.** If it empties, reminders stop
+- **Messages cost 15 RWF from a prepaid wallet.** If it empties, reminders stop
   and nobody would notice — so the balance is read from the wallet endpoint on
-  every health check and recovery gets a critical alert below 500 RWF.
+  every health check and recovery gets a critical alert below 450 RWF.
 - **160 characters includes their 48-character brand link.** Bodies are capped
   at 112 so a long room number can never push a reminder into a second SMS.
 

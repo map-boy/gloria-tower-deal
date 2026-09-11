@@ -65,25 +65,49 @@ export const markProofDownloaded = (billId: string) =>
 export const deleteRoom = (roomId: string) =>
   call<{ roomId: string }, { ok: boolean; deletedBills: number }>('deleteRoom')({ roomId }).then((r) => r.data);
 
+export const SMS_COST_RWF = 15;
+// 160 characters minus the provider's own 48-character brand link.
+export const SMS_BODY_LIMIT = 112;
+
 export interface SmsDiagnostics {
   ok: boolean;
   recipient: string;
   usingSecret: boolean;
   workingBase: string | null;
+  workingScheme: string | null;
   balance: number | null;
+  costPerSms: number;
   summary: string;
   attempts: Array<{
     base: string;
+    scheme: string;
     httpStatus: number | null;
     ok: boolean;
     providerMessage: string | null;
   }>;
 }
 
-// Sends one real message and reports what the provider said, so the SMS setup
-// can be proven without waiting for a bill to go out.
-export const smsDiagnostics = (phone: string) =>
-  call<{ phone: string }, SmsDiagnostics>('smsDiagnostics')({ phone }).then((r) => r.data);
+// Sends one real message and reports which endpoint and which header scheme
+// the provider actually accepted, so the setup is proven rather than assumed.
+export const smsDiagnostics = (phone: string, message?: string) =>
+  call<{ phone: string; message?: string }, SmsDiagnostics>('smsDiagnostics')({
+    phone,
+    message,
+  }).then((r) => r.data);
+
+export interface CustomSmsResult {
+  ok: boolean;
+  sent: number;
+  failed: number;
+  costRwf: number;
+  results: Array<{ roomId: string; roomNumber?: string; ok: boolean; reason?: string }>;
+}
+
+export const sendCustomSms = (roomIds: string[], message: string) =>
+  call<{ roomIds: string[]; message: string }, CustomSmsResult>('sendCustomSms')({
+    roomIds,
+    message,
+  }).then((r) => r.data);
 
 export const runHealthCheckNow = () =>
   call<Record<string, never>, HealthReport>('runHealthCheckNow')({}).then((r) => r.data);

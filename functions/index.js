@@ -676,7 +676,7 @@ async function notifyStaff({ id, type, audience, severity, title, body, roomId, 
 }
 
 // --- SMS Connect (https://smsconnect.tech) -------------------------------
-// Every message is billed 10 RWF from a prepaid wallet, and the provider
+// Every message is billed from a prepaid wallet, and the provider
 // appends its own 48-character brand link inside the same 160-character SMS.
 // Both facts shape the code below: bodies are capped so the brand link cannot
 // push a message into a second SMS, and a drained wallet raises an alert
@@ -693,9 +693,13 @@ const SMS_SENDER_ID = process.env.MIC_SENDER_ID || "MICTOWER";
 // 160 total, minus "\n\nPowered by SMSConnect: https://smsconnect.tech".
 const SMS_BODY_LIMIT = 112;
 
-// At 10 RWF a message this is 50 messages of warning, which is enough time to
-// top up before clients stop hearing from us.
-const LOW_BALANCE_RWF = 500;
+// What the provider charges per message. Used to turn a wallet balance into
+// "how many messages are left", which is the number that actually matters.
+const SMS_COST_RWF = 15;
+
+// Roughly 30 messages of warning -- enough time to top up before clients stop
+// hearing from us.
+const LOW_BALANCE_RWF = 450;
 
 // The API accepts 2507XXXXXXXX or 07XXXXXXXX. Our stored phones are typed
 // every which way (+250..., 07..., spaces), so normalise to the 250 form.
@@ -713,41 +717,87 @@ function capSmsBody(text) {
   return `${clean.slice(0, SMS_BODY_LIMIT - 1).trimEnd()}\u2026`;
 }
 
-function smsHeaders() {
-  const apiKey = MIC_API_KEY.value() || process.env.MIC_API_KEY || "";
-  const apiSecret = process.env.MIC_API_SECRET || "";
-  const headers = {
-    "X-API-Key": apiKey,
-    "Content-Type": "application/json",
-    Accept: "application/json",
+// The provider's dashboard says X-API-Key; its docs page says an
+// Authorization bearer plus X-API-SECRET. Sending X-API-Key alone to
+// /api/v1 comes back "Missing API credentials", so neither document is
+// complete on its own. Rather than pick one, every plausible combination is
+// defined here and smsDiagnostics reports which the server actually accepts.
+function smsCredentials() {
+  return {
+    apiKey: MIC_API_KEY.value() || process.env.MIC_API_KEY || "",
+    apiSecret: process.env.MIC_API_SECRET || "",
   };
-  // Only meaningful for the account-level key/secret pair; a dashboard key
-  // authenticates on X-API-Key alone.
+}
+
+function headerSchemes() {
+  const { apiKey, apiSecret } = smsCredentials();
+  if (!apiKey) return [];
+
+  const base = { "Content-Type": "application/json", Accept: "application/json" };
+  const schemes = [
+    // Bearer is what the docs page shows, and is the most likely fit for a
+    // route that answered "Missing API credentials".
+    { name: "bearer+key", headers: { ...base, Authorization: `Bearer ${apiKey}`, "X-API-Key": apiKey } },
+    { name: "bearer", headers: { ...base, Authorization: `Bearer ${apiKey}` } },
+    { name: "x-api-key", headers: { ...base, "X-API-Key": apiKey } },
+  ];
+
   if (apiSecret) {
-    headers.Authorization = `Bearer ${apiKey}`;
-    headers["X-API-SECRET"] = apiSecret;
+    schemes.unshift({
+      name: "bearer+secret",
+      headers: {
+        ...base,
+        Authorization: `Bearer ${apiKey}`,
+        "X-API-SECRET": apiSecret,
+        "X-API-Key": apiKey,
+      },
+    });
+  } else {
+    // Some deployments treat the generated key as its own secret.
+    schemes.push({
+      name: "bearer+key-as-secret",
+      headers: {
+        ...base,
+        Authorization: `Bearer ${apiKey}`,
+        "X-API-SECRET": apiKey,
+        "X-API-Key": apiKey,
+      },
+    });
   }
-  return { headers, apiKey };
+  return schemes;
+}
+
+// Whichever base + header scheme the server accepted, remembered so we stop
+// probing once something works.
+let workingScheme = null;
+
+function smsHeaders() {
+  const { apiKey } = smsCredentials();
+  const schemes = headerSchemes();
+  const chosen = workingScheme
+    ? schemes.find((s) => s.name === workingScheme.name) || schemes[0]
+    : schemes[0];
+  return { headers: chosen ? chosen.headers : {}, apiKey };
 }
 
 // Remembered for the life of the instance so we stop probing once something
 // answers.
 let workingSmsBase = null;
 
-async function smsFetch(path, options) {
-  const bases = workingSmsBase ? [workingSmsBase] : SMS_BASE_CANDIDATES;
+async function smsFetch(path, init) {
+  const bases = workingScheme ? [workingScheme.base] : SMS_BASE_CANDIDATES;
+  const { headers } = smsHeaders();
   let lastError = null;
 
   for (const base of bases) {
     try {
-      const res = await fetch(`${base}${path}`, options);
-      // A 404 means this base is not where the API lives; anything else is a
-      // real answer, including a 401 or a 400 we must surface.
+      const res = await fetch(`${base}${path}`, { ...init, headers });
+      // 404 means the API does not live at this base; anything else is a real
+      // answer worth surfacing, including a 401 we must not hide.
       if (res.status === 404 && bases.length > 1) {
         lastError = new Error(`404 at ${base}${path}`);
         continue;
       }
-      workingSmsBase = base;
       return res;
     } catch (e) {
       lastError = e;
@@ -826,7 +876,8 @@ async function sendSms(phone, text, context) {
           severity: "critical",
           title: "SMS wallet almost empty",
           body:
-            `${data.balance} RWF left at 10 RWF per message. ` +
+            `${data.balance} RWF left at ${SMS_COST_RWF} RWF per message ` +
+            `(about ${Math.floor(data.balance / SMS_COST_RWF)} messages). ` +
             `Top up at smsconnect.tech or clients stop getting reminders.`,
         });
       }
@@ -877,74 +928,138 @@ async function readSmsBalance() {
 // answered, the HTTP status, and the provider's own message. The provider's
 // dashboard and its docs page disagree about the path and the auth headers,
 // so this settles it with evidence instead of a guess.
-exports.smsDiagnostics = onCall(
-  { secrets: [MIC_API_KEY] },
-  async (request) => {
-    await requireRole(request.auth, "admin", "recovery");
-    const { phone } = request.data || {};
-    const recipient = toSmsRecipient(phone);
-    if (!recipient) {
-      throw new HttpsError("invalid-argument", "Enter a Rwandan phone number to test with");
-    }
+exports.smsDiagnostics = onCall({ secrets: [MIC_API_KEY] }, async (request) => {
+  await requireRole(request.auth, "admin", "recovery");
+  const { phone, message } = request.data || {};
+  const recipient = toSmsRecipient(phone);
+  if (!recipient) {
+    throw new HttpsError("invalid-argument", "Enter a Rwandan phone number to test with");
+  }
 
-    const { headers, apiKey } = smsHeaders();
-    const attempts = [];
+  const schemes = headerSchemes();
+  if (schemes.length === 0) {
+    return {
+      ok: false,
+      recipient,
+      attempts: [],
+      summary: "MIC_API_KEY is not set. Run: firebase functions:secrets:set MIC_API_KEY",
+    };
+  }
 
-    if (!apiKey) {
-      return {
-        ok: false,
-        recipient,
-        attempts,
-        summary: "MIC_API_KEY is not set. Run: firebase functions:secrets:set MIC_API_KEY",
-      };
-    }
+  const body = JSON.stringify({
+    recipient,
+    message: capSmsBody(message || "MIC Tower test message. If you got this, SMS is working."),
+    sender_id: SMS_SENDER_ID,
+  });
 
-    // Probe every candidate so the result shows which one works, even when
-    // the first already succeeds.
-    for (const base of SMS_BASE_CANDIDATES) {
+  const attempts = [];
+  let winner = null;
+
+  // Walk base x scheme until something is accepted. A 404 kills a whole base,
+  // so there is no point trying its other schemes.
+  outer: for (const base of SMS_BASE_CANDIDATES) {
+    for (const scheme of schemes) {
       try {
         const res = await fetch(`${base}/sms/send`, {
           method: "POST",
-          headers,
-          body: JSON.stringify({
-            recipient,
-            message: "MIC Tower test message. If you got this, SMS is working.",
-            sender_id: SMS_SENDER_ID,
-          }),
+          headers: scheme.headers,
+          body,
         });
         const payload = await res.json().catch(() => null);
+        const ok = !!(res.ok && payload && payload.success);
         attempts.push({
           base,
+          scheme: scheme.name,
           httpStatus: res.status,
-          ok: !!(res.ok && payload && payload.success),
+          ok,
           providerMessage: (payload && payload.message) || null,
           balance: (payload && payload.data && payload.data.balance) ?? null,
         });
-        if (res.ok && payload && payload.success) {
-          workingSmsBase = base;
-          break;
+        if (ok) {
+          winner = { base, scheme, name: scheme.name };
+          workingScheme = winner;
+          break outer;
         }
+        if (res.status === 404) continue outer;
       } catch (e) {
-        attempts.push({ base, httpStatus: null, ok: false, providerMessage: String(e) });
+        attempts.push({
+          base,
+          scheme: scheme.name,
+          httpStatus: null,
+          ok: false,
+          providerMessage: String(e),
+        });
       }
     }
-
-    const winner = attempts.find((a) => a.ok);
-    const balance = await readSmsBalance();
-
-    return {
-      ok: !!winner,
-      recipient,
-      usingSecret: !!process.env.MIC_API_SECRET,
-      workingBase: winner ? winner.base : null,
-      balance,
-      attempts,
-      summary: winner
-        ? `Sent via ${winner.base}. Check the phone.`
-        : `No endpoint accepted the message. ${attempts.map((a) => `${a.base}: ${a.httpStatus ?? "no response"} ${a.providerMessage ?? ""}`).join(" | ")}`,
-    };
   }
-);
+
+  // Remember a working combination so real sends stop probing.
+  if (winner) {
+    await db.doc("config/smsRoute").set({
+      base: winner.base,
+      scheme: winner.name,
+      confirmedAt: new Date().toISOString(),
+    });
+  }
+
+  const balance = winner ? await readSmsBalance() : null;
+
+  return {
+    ok: !!winner,
+    recipient,
+    usingSecret: !!process.env.MIC_API_SECRET,
+    workingBase: winner ? winner.base : null,
+    workingScheme: winner ? winner.name : null,
+    balance,
+    costPerSms: SMS_COST_RWF,
+    attempts,
+    summary: winner
+      ? `Sent via ${winner.base} using ${winner.name} headers. Check the phone.`
+      : `Nothing was accepted. ${attempts
+          .map((a) => `${a.base} [${a.scheme}]: ${a.httpStatus ?? "no response"} ${a.providerMessage ?? ""}`)
+          .join(" | ")}`,
+  };
+});
+
+// Recovery and admin can write a message and send it to chosen clients --
+// a warning, a notice, anything the automatic reminders do not cover.
+exports.sendCustomSms = onCall({ secrets: [MIC_API_KEY] }, async (request) => {
+  await requireRole(request.auth, "admin", "recovery");
+  const { roomIds, message } = request.data || {};
+
+  if (!message || !String(message).trim()) {
+    throw new HttpsError("invalid-argument", "Write the message first");
+  }
+  if (!Array.isArray(roomIds) || roomIds.length === 0) {
+    throw new HttpsError("invalid-argument", "Pick at least one client");
+  }
+  if (roomIds.length > 200) {
+    throw new HttpsError("invalid-argument", "Too many recipients in one go (max 200)");
+  }
+
+  const text = capSmsBody(message);
+  const results = [];
+
+  for (const roomId of roomIds) {
+    const snap = await db.doc(`rooms/${roomId}`).get();
+    if (!snap.exists) {
+      results.push({ roomId, ok: false, reason: "room not found" });
+      continue;
+    }
+    const room = snap.data();
+    const ok = await sendSms(room.tenantPhone, text, `manual:${request.auth.uid}`);
+    results.push({ roomId, roomNumber: room.roomNumber, ok });
+  }
+
+  const sent = results.filter((r) => r.ok).length;
+  return {
+    ok: sent > 0,
+    sent,
+    failed: results.length - sent,
+    costRwf: sent * SMS_COST_RWF,
+    results,
+  };
+});
 
 // Reminder 1 of 2: fires the moment the technician's reading becomes a bill.
 exports.onBillCreated = onDocumentCreated(
@@ -1205,7 +1320,8 @@ async function runHealthCheck() {
     if (smsBalance !== null && smsBalance <= LOW_BALANCE_RWF) {
       ok = false;
       notes.push(
-        `SMS wallet down to ${smsBalance} RWF (about ${Math.floor(smsBalance / 10)} messages).`
+        `SMS wallet down to ${smsBalance} RWF ` +
+          `(about ${Math.floor(smsBalance / SMS_COST_RWF)} messages).`
       );
     }
   } catch (e) {
