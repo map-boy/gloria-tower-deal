@@ -146,7 +146,7 @@ export const AdminPortal: React.FC<{
 
       {tab === 'system' && (
         <>
-        <SmsPanel smsBalance={health?.smsBalance} />
+        <SmsPanel smsBalance={health?.smsBalance} rooms={rooms} />
         <Card className="space-y-3">
           <div className="font-black text-sm">Watchdog</div>
           {health ? (
