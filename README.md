@@ -1,77 +1,105 @@
-# Cash Power Tracker
+# Gloria Tower
 
-A small rental building tool. A tenant types the room number that is on their
-door plus their name, and they are in — no admin approval, no account to open.
-They pay their rent and cash power however they already do (phone, Irembo,
-cash), then send a screenshot or photo of the payment along with what they
-paid and their cash power meter reading. The admin sits with that in front of
-them and marks it paid, or partial with the amount actually received.
+Utility billing for a rental building. A technician reads meters, the system
+turns each reading into a bill, the client pays and sends proof, and the
+recovery agent confirms it.
 
-## How it works
+## Four portals
 
-**Tenant**
-- Enters room number + name on the landing screen. Phone is optional, and so
-  is "do you have cash power?" — rooms without a meter simply never see the
-  reading field.
-- Sees only their own room and their own submissions. Nothing about the
-  building, other rooms, or other tenants.
-- Sends a payment: amount paid, cash power reading typed free-form (meter
-  numbers are not in any sequence), an optional note, and a photo or
-  screenshot as proof.
+Everyone opens the same URL and lands where they belong.
 
-**Admin**
-- Signs in with Google. Bootstrap admins are listed in `authService.ts`,
-  `firestore.rules` and `functions/index.js`; anyone else needs a doc in the
-  `admins` collection.
-- Gets a bell alert and a push notification the moment a tenant submits.
-  Clicking the alert opens that tenant's screen with what they uploaded.
-- Sees every room registered, every submission, and what is still waiting to
-  be marked.
-- Marks a submission **paid**, or **partial** with the figure actually
-  received, and can edit any field on any room or submission — a mistyped
-  reading, a wrong amount, a name.
-- Can free a room number so a new tenant can claim it.
+| Portal | Who | What they do |
+| --- | --- | --- |
+| **Client** | tenants | See what they owe, pay, send proof, ask questions |
+| **Technician** | field staff | Register clients with a starting meter reading, record readings |
+| **Recovery** | collections | Set prices, check proof, mark paid, chase overdue, keep records |
+| **Admin** | owners | Everything, plus assigning who is what |
 
-**Rooms are never hard-coded.** A room doc is created the first time someone
-types its number, so the building can be any shape and grow as tenants arrive.
-The first anonymous browser to claim a room number owns it; anyone else typing
-the same number is told to talk to the admin.
+Staff sign in with Google; their role comes from the staff directory an admin
+manages. Clients never get an account — they enter with their room number, the
+phone the technician wrote down, and a password they choose the first time.
+
+## The money loop
+
+1. Recovery sets the price per unit for electricity and water, and the monthly
+   rent.
+2. A technician registers a client, writing down the meter numbers showing that
+   day. Every bill they ever get is measured from those.
+3. The technician records a new reading. The system bills
+   `(new − previous) × price` and the client has **5 days** to pay.
+4. The client pays however they normally do and uploads a photo of the proof.
+5. Recovery checks it and marks it paid, or part paid with the figure actually
+   received.
+
+A bill freezes the price it was raised at, so changing prices never rewrites
+what a client was already told to pay.
+
+**Readings that go backwards are rejected.** A meter reading lower than the
+last one means a misread or a replaced meter, and billing it silently as zero
+would bury a mistake the technician needs to fix on the spot.
+
+## Reminders
+
+Two SMS messages inside the 5 day window: one the moment the bill is raised,
+another on day 3. Past day 5 the bill shows as overdue and recovery gets an
+alert naming how many clients are late.
 
 ## Photo retention
 
-Payment photos are deleted 14 days after upload by a daily Cloud Function
-(`cleanupExpiredScreenshots`, also callable on demand as
-`cleanupScreenshotsNow`) to stay inside the free Storage tier. The submission
-record — amount, cash power reading, notes, admin decision — stays forever, so
-the archive still shows that this person read this meter and paid this much.
+Payment photos are deleted **7 days** after upload to stay inside the free
+storage tier. The recovery agent downloads anything worth keeping before then,
+and gets a warning the day before a batch expires. The payment record — amount,
+meter reading, who approved it and when — stays forever either way.
 
-## Tech stack
+## The watchdog
 
-- **Frontend:** React + Vite + TypeScript + Tailwind
-- **Backend:** Firebase — Firestore, Storage, Cloud Functions, FCM
-- **Auth:** anonymous sign-in for tenants (their uid owns the room),
-  Google sign-in for admins
+A scheduled check every 6 hours tells recovery and admin if something is
+broken: billing detached, storage near the free limit, Firestore not
+answering, or SMS failing. Findings land in the same alerts list as everything
+else.
 
-There is no payment-provider integration. Everything about Irembo APIs, bank
-webhooks and generated invoices was removed — payment proof is a photo, and
-confirmation is the admin's own judgement.
+## Cost control
 
-## Project structure
+- **Instance caps** (`maxInstances: 3`) bound how fast anything can spend.
+- **A billing kill switch** detaches the billing account if spend passes the
+  budget. A hard stop, not a throttle: the project goes dead and stays dead
+  until a human re-attaches billing.
+
+## Configuration
+
+Frontend (`.env`, and the same values in Vercel):
 
 ```
-src/
-├── 1_core/       # Domain types and formatters
-├── 2_backend/    # Firebase services (auth, storage, notifications)
-└── 3_frontend/   # React components and hooks
-functions/        # claimRoom, submission alerts, screenshot cleanup
+VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID,
+VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID,
+VITE_FIREBASE_APP_ID, VITE_FIREBASE_VAPID_KEY
 ```
 
-## Getting started
+SMS, on the functions side:
+
+```bash
+firebase functions:secrets:set MIC_API_KEY
+firebase functions:config:set   # or set MIC_SMS_ENDPOINT / MIC_SENDER_ID as env vars
+```
+
+`MIC_SMS_ENDPOINT` is the provider's send URL. Until both it and the key are
+set, messages are written to the `smsLog` collection marked `not_configured`
+rather than silently dropped, and the watchdog reports them.
+
+## Running it
 
 ```bash
 npm install
-cp .env.example .env   # fill in your Firebase project values
 npm run dev
+firebase deploy --only firestore:rules,firestore:indexes,storage,functions
 ```
 
-Deploy rules and functions with `firebase deploy --only firestore:rules,storage,functions`.
+## Layout
+
+```
+src/
+├── 1_core/       # Domain types and the billing maths (pure, tested)
+├── 2_backend/    # Firebase services
+└── 3_frontend/   # Shared UI kit, components, and the four portals
+functions/        # Roles, billing, reminders, retention, watchdog, kill switch
+```

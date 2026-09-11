@@ -3,29 +3,28 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() { return request.auth != null; }
 
+    function email() { return request.auth.token.email.lower(); }
+    function hasEmail() { return isSignedIn() && 'email' in request.auth.token; }
+
+    // Owners of last resort -- cannot be removed from inside the app.
     function isBootstrapAdmin() {
-      return isSignedIn() && 'email' in request.auth.token &&
-        request.auth.token.email.lower() in [
-          'techubwenge@gmail.com',
-          'uwimbabazigloria05@gmail.com',
-          'abdullazackniyigaba@gmail.com'
-        ];
+      return hasEmail() && email() in [
+        'techubwenge@gmail.com',
+        'uwimbabazigloria05@gmail.com',
+        'abdullazackniyigaba@gmail.com'
+      ];
     }
 
-    // Granted by email, so the grant is already waiting the first time the
-    // person signs in with Google.
-    function isGrantedAdmin() {
-      return isSignedIn() && 'email' in request.auth.token &&
-        exists(/databases/$(database)/documents/adminEmails/$(request.auth.token.email.lower()));
+    function staffRole() {
+      return hasEmail() && exists(/databases/$(database)/documents/staff/$(email()))
+        ? get(/databases/$(database)/documents/staff/$(email())).data.role
+        : '';
     }
 
-    // Admin has full rights everywhere below: read anything, edit anything.
-    function isAdmin() {
-      return isSignedIn() &&
-        (isBootstrapAdmin() ||
-         isGrantedAdmin() ||
-         exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
-    }
+    function isAdmin()      { return isBootstrapAdmin() || staffRole() == 'admin'; }
+    function isRecovery()   { return isAdmin() || staffRole() == 'recovery'; }
+    function isTechnician() { return isAdmin() || staffRole() == 'technician'; }
+    function isStaff()      { return isAdmin() || isRecovery() || isTechnician(); }
 
     function ownsRoom(roomId) {
       return isSignedIn() &&
@@ -33,62 +32,73 @@ service cloud.firestore {
         get(/databases/$(database)/documents/rooms/$(roomId)).data.tenantUid == request.auth.uid;
     }
 
-    // Rooms are created by the claimRoom callable (admin SDK), never by a
-    // client write -- that is what keeps two tenants off one room number.
-    match /rooms/{roomId} {
-      allow get: if isAdmin() || (isSignedIn() && resource.data.tenantUid == request.auth.uid);
-      allow list: if isAdmin();
-      allow create, update, delete: if isAdmin();
-    }
-
-    // A tenant reads and writes only their own submissions. Confirming a
-    // payment is admin-only -- a tenant can report, never approve.
-    match /submissions/{submissionId} {
-      allow read: if isAdmin() || ownsRoom(resource.data.roomId);
-      allow create: if isAdmin() ||
-        (isSignedIn() &&
-         request.resource.data.tenantUid == request.auth.uid &&
-         ownsRoom(request.resource.data.roomId) &&
-         request.resource.data.status == 'pending' &&
-         !('amountConfirmed' in request.resource.data) &&
-         !('reviewedBy' in request.resource.data) &&
-         request.resource.data.amountReported is number &&
-         request.resource.data.amountReported >= 0);
-      allow update, delete: if isAdmin();
-    }
-
-    // Free tier usage snapshot, written by the daily job.
-    match /usage/{docId} {
-      allow read: if isAdmin();
+    // Staff directory. Writes go through setStaffRole/removeStaff so built-in
+    // owners are protected and roles are validated in one place.
+    match /staff/{email} {
+      allow read: if isSignedIn();
       allow write: if false;
     }
 
-    // Room passwords. No client reads or writes these, ever -- only the
-    // claimRoom and setRoomPassword functions touch them, via the admin SDK.
-    match /roomSecrets/{roomId} {
-      allow read, write: if false;
+    // Prices are public to everyone signed in: a client has to be able to see
+    // the rate their own bill was worked out from.
+    match /config/{docId} {
+      allow read: if isSignedIn();
+      allow write: if false;
     }
 
-    // Written by the onSubmissionCreated function; only admins ever see them.
+    // Every staff role needs the whole list of rooms to do its job. A client
+    // may read only their own.
+    match /rooms/{roomId} {
+      allow get: if isStaff() || (isSignedIn() && resource.data.tenantUid == request.auth.uid);
+      allow list: if isStaff();
+      // Admin edits anything directly; everything else goes through a callable.
+      allow write: if isAdmin();
+    }
+
+    // Bills are created and settled by callables. A client reads their own.
+    match /bills/{billId} {
+      allow read: if isStaff() || ownsRoom(resource.data.roomId);
+      allow write: if isAdmin();
+    }
+
+    match /messages/{messageId} {
+      allow read: if isStaff() || ownsRoom(resource.data.roomId);
+      // Marking a thread as seen is the one field staff may touch directly;
+      // without it the unread badge would only ever count up.
+      allow update: if isStaff() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readByStaff']);
+      // Posting goes through postMessage so authorship cannot be forged;
+      // admins may still correct the record directly.
+      allow create, delete: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Staff-only alerts. Marking one read is the only client-side write.
     match /notifications/{notificationId} {
-      allow read, write: if isAdmin();
+      allow read: if isStaff();
+      allow update: if isStaff() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow create, delete: if isAdmin();
+    }
+
+    match /health/{docId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
+    match /smsLog/{logId} {
+      allow read: if isRecovery();
+      allow write: if false;
+    }
+
+    // Room passwords. No client reads or writes these, ever.
+    match /roomSecrets/{roomId} {
+      allow read, write: if false;
     }
 
     match /deviceTokens/{tokenId} {
       allow read: if false;
       allow write: if isSignedIn();
-    }
-
-    // The admin panel lists these. Writes go through addAdmin/removeAdmin so
-    // the built-in owners cannot be deleted and emails are validated.
-    match /adminEmails/{email} {
-      allow read: if isAdmin();
-      allow write: if false;
-    }
-
-    match /admins/{uid} {
-      allow read: if isSignedIn();
-      allow write: if false;
     }
 
     match /{document=**} {

@@ -1,21 +1,20 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    function email() { return request.auth.token.email.lower(); }
+    function hasEmail() { return request.auth != null && request.auth.token.email != null; }
+
     function isBootstrapAdmin() {
-      return request.auth != null && request.auth.token.email != null &&
-        request.auth.token.email.lower() in [
-          'techubwenge@gmail.com',
-          'uwimbabazigloria05@gmail.com',
-          'abdullazackniyigaba@gmail.com'
-        ];
+      return hasEmail() && email() in [
+        'techubwenge@gmail.com',
+        'uwimbabazigloria05@gmail.com',
+        'abdullazackniyigaba@gmail.com'
+      ];
     }
 
-    function isAdmin() {
-      return request.auth != null &&
-        (isBootstrapAdmin() ||
-         (request.auth.token.email != null &&
-          firestore.exists(/databases/(default)/documents/adminEmails/$(request.auth.token.email.lower()))) ||
-         firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid)));
+    function isStaff() {
+      return isBootstrapAdmin() ||
+        (hasEmail() && firestore.exists(/databases/(default)/documents/staff/$(email())));
     }
 
     function ownsRoom(roomId) {
@@ -23,15 +22,16 @@ service firebase.storage {
         firestore.get(/databases/(default)/documents/rooms/$(roomId)).data.tenantUid == request.auth.uid;
     }
 
-    // Payment proof: the tenant of the room uploads, the tenant and the admin
-    // read. A daily function deletes these after 14 days; the submission
-    // record of what was paid stays behind in Firestore.
-    match /paymentScreenshots/{roomId}/{fileName} {
-      allow read: if isAdmin() || ownsRoom(roomId);
+    // Payment proof. The client of the room uploads it; they and staff read
+    // it. A daily job deletes these after 7 days -- the recovery agent
+    // downloads what they need to keep before then, and the payment record
+    // itself stays in Firestore either way.
+    match /paymentProofs/{roomId}/{fileName} {
+      allow read: if isStaff() || ownsRoom(roomId);
       allow create: if ownsRoom(roomId) &&
         request.resource.size < 5 * 1024 * 1024 &&
         request.resource.contentType.matches('image/.*');
-      allow update, delete: if isAdmin();
+      allow update, delete: if isStaff();
     }
 
     match /{allPaths=**} {

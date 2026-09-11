@@ -1,19 +1,9 @@
 import { getToken, onMessage } from 'firebase/messaging';
-import {
-  doc,
-  setDoc,
-  updateDoc,
-  collection,
-  query,
-  orderBy,
-  limit,
-  onSnapshot,
-} from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { db, getMessagingIfSupported } from './firebaseConfig';
-import { AppNotification } from '../../1_core/domain/types';
 
 export async function registerForNotifications(
-  role: 'admin' | 'tenant',
+  role: 'admin' | 'recovery' | 'technician',
   roomId?: string
 ): Promise<string | null> {
   try {
@@ -58,7 +48,7 @@ export function listenForForegroundMessages(
     if (!messaging || cancelled) return;
     unsub = onMessage(messaging, (payload) => {
       callback(
-        payload.notification?.title || 'Cash Power Tracker',
+        payload.notification?.title || 'Gloria Tower',
         payload.notification?.body || ''
       );
     });
@@ -68,28 +58,4 @@ export function listenForForegroundMessages(
     cancelled = true;
     if (unsub) unsub();
   };
-}
-
-// --- In-app notification bell (admin) ---
-
-const NOTIFICATIONS_LIMIT = 50;
-
-export function subscribeToNotifications(
-  callback: (notifications: AppNotification[]) => void
-): () => void {
-  const q = query(
-    collection(db, 'notifications'),
-    orderBy('createdAt', 'desc'),
-    limit(NOTIFICATIONS_LIMIT)
-  );
-  return onSnapshot(q, (snap) => {
-    const items = snap.docs.map(
-      (d) => ({ id: d.id, ...(d.data() as any) } as AppNotification)
-    );
-    callback(items);
-  });
-}
-
-export async function markNotificationRead(notificationId: string): Promise<void> {
-  await updateDoc(doc(db, 'notifications', notificationId), { read: true });
 }
