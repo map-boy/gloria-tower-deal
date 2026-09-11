@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bill, Message, Rates, Room, SERVICE_LABELS, roomServices } from '../../1_core/domain/types';
+import {
+  Bill, Message, Rates, Room, SERVICE_LABELS, ServiceType, roomServices, serviceHasMeter,
+} from '../../1_core/domain/types';
 import { isOverdue } from '../../1_core/billing/calculate';
-import { formatCurrency } from '../../1_core/utils/formatters';
+import { formatCurrency, formatDate } from '../../1_core/utils/formatters';
 import {
   postMessage, submitProof, uploadProof, watchRoomBills, watchRoomMessages,
 } from '../../2_backend/services/dataService';
@@ -38,6 +40,27 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({ room, rates, onLogou
 
   const unpaid = bills.filter((b) => b.status !== 'paid');
   const settled = bills.filter((b) => b.status === 'paid');
+
+  // Latest meter position per service, so a client can check the reading they
+  // are being billed on against the meter on their own wall.
+  const meterNow = useMemo(() => {
+    return roomServices(room)
+      .filter(serviceHasMeter)
+      .map((service) => {
+        const latest = bills
+          .filter((b) => b.serviceType === service)
+          .sort((a, b) => b.issuedAt.localeCompare(a.issuedAt))[0];
+        return latest
+          ? {
+              service: service as ServiceType,
+              from: latest.previousReading,
+              to: latest.currentReading,
+              when: latest.issuedAt,
+            }
+          : null;
+      })
+      .filter((x): x is { service: ServiceType; from: number; to: number; when: string } => x !== null);
+  }, [bills, room]);
 
   return (
     <PortalShell
@@ -128,6 +151,47 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({ room, rates, onLogou
           </div>
 
           <div>
+            <div className="text-[10px] uppercase text-bone/55 mb-1">
+              Where your meters started
+            </div>
+            <p className="text-[10px] text-bone/50 mb-1">
+              Set by the technician on {formatDate(room.createdAt)}. Your very first bill was
+              measured from these numbers.
+            </p>
+            <ul className="text-xs space-y-0.5">
+              {room.hasElectricity && (
+                <li>Electricity started at <b>{room.startElectricityReading ?? 0}</b></li>
+              )}
+              {room.hasWater && (
+                <li>Water started at <b>{room.startWaterReading ?? 0}</b></li>
+              )}
+              {!room.hasElectricity && !room.hasWater && (
+                <li className="text-bone/50">No meters on this room.</li>
+              )}
+            </ul>
+          </div>
+
+          <div>
+            <div className="text-[10px] uppercase text-bone/55 mb-1">Your meters now</div>
+            {meterNow.length === 0 ? (
+              <p className="text-[10px] text-bone/50">
+                No readings taken yet. The technician records them on their round.
+              </p>
+            ) : (
+              <ul className="text-xs space-y-0.5">
+                {meterNow.map(({ service, from, to, when }) => (
+                  <li key={service}>
+                    {SERVICE_LABELS[service]}: <b>{to}</b>
+                    <span className="text-bone/50">
+                      {' '}(was {from}, read {formatDate(when)})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div>
             <div className="text-[10px] uppercase text-bone/55 mb-1">Current prices</div>
             <ul className="text-xs space-y-0.5">
               <li>Electricity: {formatCurrency(rates.electricityPerUnit)} per unit</li>
@@ -137,7 +201,8 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({ room, rates, onLogou
           </div>
 
           <p className="text-[10px] text-bone/45">
-            Something wrong? Ask a question and the recovery agent will sort it out.
+            A number here looks wrong? Ask a question — only staff can change these, and the
+            recovery agent will sort it out.
           </p>
         </Card>
       )}

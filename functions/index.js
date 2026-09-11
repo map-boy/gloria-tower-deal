@@ -11,11 +11,21 @@ const { getMessaging } = require("firebase-admin/messaging");
 const { CloudBillingClient } = require("@google-cloud/billing");
 const crypto = require("crypto");
 
-// Ceiling on what this project can ever cost. Past the cap requests queue and
-// then fail: errors rather than an invoice, which is the trade this building
-// wants. No global region -- the Firestore trigger must sit in the database's
-// own region (africa-south1 here).
-setGlobalOptions({ maxInstances: 3, memory: "256MiB", timeoutSeconds: 60 });
+// Ceiling on what this project can ever cost, and on what it reserves.
+//
+// Every 2nd-gen function is its own Cloud Run service, and the regional quota
+// counts the worst case: maxInstances x cpu, summed across all of them. At a
+// whole CPU and 3 instances each, 21 functions reserve 53 CPU and the deploy
+// is refused outright. A quarter CPU and a single instance brings that to
+// about 5.
+//
+// One instance is not one request at a time -- a Cloud Run instance serves
+// many concurrent requests -- so for a building this size the ceiling costs
+// nothing in throughput, and it tightens the spend cap at the same time.
+//
+// No global region: the Firestore trigger must sit in the database's own
+// region (africa-south1 here).
+setGlobalOptions({ maxInstances: 1, cpu: 0.25, memory: "256MiB", timeoutSeconds: 60 });
 
 initializeApp();
 const db = getFirestore();
@@ -971,7 +981,6 @@ exports.dailyBillingSweep = onSchedule(
   {
     schedule: "0 8 * * *",
     timeZone: "Africa/Kigali",
-    maxInstances: 1,
     timeoutSeconds: 300,
     retryCount: 0,
     secrets: [MIC_API_KEY],
@@ -1069,7 +1078,6 @@ exports.cleanupExpiredProofs = onSchedule(
   {
     schedule: "0 3 * * *",
     timeZone: "Africa/Kigali",
-    maxInstances: 1,
     timeoutSeconds: 300,
     retryCount: 0,
   },
@@ -1087,7 +1095,7 @@ exports.cleanupProofsNow = onCall(async (request) => {
 // Warns recovery a day before proofs vanish, so anything not yet downloaded
 // can be saved while it still exists.
 exports.warnBeforeProofDeletion = onSchedule(
-  { schedule: "0 7 * * *", timeZone: "Africa/Kigali", maxInstances: 1, retryCount: 0 },
+  { schedule: "0 7 * * *", timeZone: "Africa/Kigali", retryCount: 0 },
   async () => {
     const cutoff = addDays(new Date().toISOString(), 1);
     const snap = await db
@@ -1257,7 +1265,6 @@ exports.watchdog = onSchedule(
   {
     schedule: "0 */6 * * *",
     timeZone: "Africa/Kigali",
-    maxInstances: 1,
     retryCount: 0,
     secrets: [MIC_API_KEY],
   },
@@ -1285,7 +1292,7 @@ exports.runHealthCheckNow = onCall(
 const BUDGET_TOPIC = "billing-kill-switch";
 
 exports.stopBillingWhenBudgetExceeded = onMessagePublished(
-  { topic: BUDGET_TOPIC, maxInstances: 1, retryCount: 0 },
+  { topic: BUDGET_TOPIC, retryCount: 0 },
   async (event) => {
     const notice = event.data.message.json || {};
     const spend = Number(notice.costAmount || 0);
