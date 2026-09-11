@@ -23,7 +23,7 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
   const { title, body } = payload.notification || {};
-  self.registration.showNotification(title || "Voltra Tower", {
+  self.registration.showNotification(title || "MIC Tower", {
     body: body || "",
     icon: "/vite.svg"
   });

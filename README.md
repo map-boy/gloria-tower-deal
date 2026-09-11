@@ -1,4 +1,4 @@
-# Gloria Tower
+# MIC Tower
 
 Utility billing for a rental building. A technician reads meters, the system
 turns each reading into a bill, the client pays and sends proof, and the
@@ -75,16 +75,27 @@ VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID,
 VITE_FIREBASE_APP_ID, VITE_FIREBASE_VAPID_KEY
 ```
 
-SMS, on the functions side:
+SMS, on the functions side. SMS Connect needs **both** credentials on every
+request:
 
 ```bash
-firebase functions:secrets:set MIC_API_KEY
-firebase functions:config:set   # or set MIC_SMS_ENDPOINT / MIC_SENDER_ID as env vars
+firebase functions:secrets:set MIC_API_KEY      # your "sms_..." API key
+firebase functions:secrets:set MIC_API_SECRET   # the secret shown once at login
 ```
 
-`MIC_SMS_ENDPOINT` is the provider's send URL. Until both it and the key are
-set, messages are written to the `smsLog` collection marked `not_configured`
-rather than silently dropped, and the watchdog reports them.
+Optional env vars: `MIC_SENDER_ID` (max 11 characters, default `MICTOWER`) and
+`MIC_SMS_BASE_URL` (default `https://smsconnect.tech/api/v1`).
+
+Two things about this provider shape the code:
+
+- **Messages cost 10 RWF from a prepaid wallet.** If it empties, reminders stop
+  and nobody would notice — so the balance is read from every send and recovery
+  gets a critical alert below 500 RWF.
+- **160 characters includes their 48-character brand link.** Bodies are capped
+  at 112 so a long room number can never push a reminder into a second SMS.
+
+Phone numbers are normalised to the `250XXXXXXXXX` form the API requires,
+whatever way they were typed.
 
 ## Running it
 

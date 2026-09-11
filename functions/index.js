@@ -21,8 +21,11 @@ initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
 
-// The SMS provider's key. Set with:  firebase functions:secrets:set MIC_API_KEY
+// SMS Connect credentials. Both are required on every request.
+//   firebase functions:secrets:set MIC_API_KEY
+//   firebase functions:secrets:set MIC_API_SECRET
 const MIC_API_KEY = defineSecret("MIC_API_KEY");
+const MIC_API_SECRET = defineSecret("MIC_API_SECRET");
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -658,55 +661,140 @@ async function notifyStaff({ id, type, audience, severity, title, body, roomId, 
   return true;
 }
 
-// The SMS provider's endpoint and payload shape are not known here, so they
-// are configuration rather than guesses baked into code. Set MIC_SMS_ENDPOINT
-// (and optionally MIC_SENDER_ID) alongside the MIC_API_KEY secret. With no
-// endpoint set the message is logged and recorded, never silently dropped.
+// --- SMS Connect (https://smsconnect.tech) -------------------------------
+// Every message is billed 10 RWF from a prepaid wallet, and the provider
+// appends its own 48-character brand link inside the same 160-character SMS.
+// Both facts shape the code below: bodies are capped so the brand link cannot
+// push a message into a second SMS, and a drained wallet raises an alert
+// rather than letting reminders fail in silence.
+const SMS_BASE_URL = process.env.MIC_SMS_BASE_URL || "https://smsconnect.tech/api/v1";
+const SMS_SENDER_ID = process.env.MIC_SENDER_ID || "MICTOWER";
+
+// 160 total, minus "\n\nPowered by SMSConnect: https://smsconnect.tech".
+const SMS_BODY_LIMIT = 112;
+
+// Reminders are worthless if the wallet empties mid-cycle, so warn while
+// there is still room to top up.
+const LOW_BALANCE_RWF = 500;
+
+// The API accepts 2507XXXXXXXX or 07XXXXXXXX. Our stored phones are typed
+// every which way (+250..., 07..., spaces), so normalise to the 250 form.
+function toSmsRecipient(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) return "";
+  const local = digits.length > 9 ? digits.slice(-9) : digits;
+  if (local.length !== 9) return "";
+  return `250${local}`;
+}
+
+function capSmsBody(text) {
+  const clean = String(text || "").trim();
+  if (clean.length <= SMS_BODY_LIMIT) return clean;
+  return `${clean.slice(0, SMS_BODY_LIMIT - 1).trimEnd()}\u2026`;
+}
+
 async function sendSms(phone, text, context) {
-  const to = normalizePhone(phone);
-  const endpoint = process.env.MIC_SMS_ENDPOINT || "";
+  const recipient = toSmsRecipient(phone);
+  const message = capSmsBody(text);
   const apiKey = MIC_API_KEY.value() || process.env.MIC_API_KEY || "";
+  const apiSecret = MIC_API_SECRET.value() || process.env.MIC_API_SECRET || "";
+
   const record = {
-    to,
-    text,
+    to: recipient || String(phone || ""),
+    text: message,
     context: context || "",
     sentAt: new Date().toISOString(),
   };
 
-  if (!to) {
-    await db.collection("smsLog").add({ ...record, status: "skipped", error: "no phone number" });
+  if (!recipient) {
+    await db.collection("smsLog").add({
+      ...record,
+      status: "skipped",
+      error: "phone number is not a usable Rwandan number",
+    });
     return false;
   }
-  if (!endpoint || !apiKey) {
+  if (!apiKey || !apiSecret) {
     await db.collection("smsLog").add({
       ...record,
       status: "not_configured",
-      error: "MIC_SMS_ENDPOINT or MIC_API_KEY is not set",
+      error: "MIC_API_KEY or MIC_API_SECRET is not set",
     });
-    console.warn(`SMS not sent (provider not configured): ${to} -- ${text}`);
+    console.warn(`SMS not sent (no credentials): ${recipient}`);
     return false;
   }
 
   try {
-    const res = await fetch(endpoint, {
+    const res = await fetch(`${SMS_BASE_URL}/sms/send`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
+        "X-API-SECRET": apiSecret,
+        "Content-Type": "application/json",
+        Accept: "application/json",
       },
       body: JSON.stringify({
-        to,
-        message: text,
-        senderId: process.env.MIC_SENDER_ID || undefined,
+        recipient,
+        message,
+        sender_id: SMS_SENDER_ID,
       }),
     });
-    const ok = res.ok;
+
+    let payload = null;
+    try {
+      payload = await res.json();
+    } catch {
+      payload = null;
+    }
+
+    const ok = res.ok && payload && payload.success;
+    const data = (payload && payload.data) || {};
+
     await db.collection("smsLog").add({
       ...record,
       status: ok ? "sent" : "failed",
       httpStatus: res.status,
+      messageId: data.message_id ?? null,
+      cost: data.cost ?? null,
+      balance: data.balance ?? null,
+      error: ok ? null : (payload && payload.message) || `HTTP ${res.status}`,
     });
-    return ok;
+
+    if (ok && typeof data.balance === "number") {
+      await db.doc("health/sms").set(
+        { balance: data.balance, checkedAt: new Date().toISOString() },
+        { merge: true }
+      );
+      if (data.balance <= LOW_BALANCE_RWF) {
+        await notifyStaff({
+          id: `sms-balance-${new Date().toISOString().slice(0, 10)}`,
+          type: "system_alert",
+          audience: "recovery",
+          severity: "critical",
+          title: "SMS wallet almost empty",
+          body:
+            `${data.balance} RWF left at 10 RWF per message. ` +
+            `Top up at smsconnect.tech or clients stop getting reminders.`,
+        });
+      }
+    }
+
+    // A rejected send is the failure nobody sees: the client simply never
+    // hears from us, and the 5 day clock runs anyway.
+    if (!ok) {
+      const reason = (payload && payload.message) || `HTTP ${res.status}`;
+      console.error(`SMS failed for ${recipient}: ${reason}`);
+      await notifyStaff({
+        id: `sms-fail-${new Date().toISOString().slice(0, 13)}`,
+        type: "system_alert",
+        audience: "recovery",
+        severity: "warning",
+        title: "SMS sending is failing",
+        body: `${reason}. Clients are not receiving their reminders.`,
+      });
+    }
+
+    return !!ok;
   } catch (e) {
     await db.collection("smsLog").add({ ...record, status: "failed", error: String(e) });
     console.error("SMS send failed", e);
@@ -716,7 +804,7 @@ async function sendSms(phone, text, context) {
 
 // Reminder 1 of 2: fires the moment the technician's reading becomes a bill.
 exports.onBillCreated = onDocumentCreated(
-  { document: "bills/{billId}", secrets: [MIC_API_KEY] },
+  { document: "bills/{billId}", secrets: [MIC_API_KEY, MIC_API_SECRET] },
   async (event) => {
     const bill = event.data ? event.data.data() : null;
     if (!bill) return;
@@ -752,7 +840,7 @@ exports.dailyBillingSweep = onSchedule(
     maxInstances: 1,
     timeoutSeconds: 300,
     retryCount: 0,
-    secrets: [MIC_API_KEY],
+    secrets: [MIC_API_KEY, MIC_API_SECRET],
   },
   async () => {
     const nowIso = new Date().toISOString();

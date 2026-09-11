@@ -48,7 +48,7 @@ export function listenForForegroundMessages(
     if (!messaging || cancelled) return;
     unsub = onMessage(messaging, (payload) => {
       callback(
-        payload.notification?.title || 'Gloria Tower',
+        payload.notification?.title || 'MIC Tower',
         payload.notification?.body || ''
       );
     });

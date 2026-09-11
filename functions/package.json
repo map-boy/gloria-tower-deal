@@ -1,6 +1,6 @@
 {
   "name": "functions",
-  "description": "Voltra Tower Cloud Functions",
+  "description": "MIC Tower Cloud Functions",
   "type": "commonjs",
   "engines": {
     "node": "22"
