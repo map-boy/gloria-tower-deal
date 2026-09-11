@@ -81,11 +81,15 @@ SMS, on the functions side:
 firebase functions:secrets:set MIC_API_KEY      # the "sms_..." key from Dashboard -> API Keys
 ```
 
-That is all a dashboard-generated key needs — it authenticates with the
-`X-API-Key` header and has no secret. The provider also documents an older
-account-level scheme using an `Authorization` bearer plus `X-API-SECRET`; if
-you hold that pair instead, set `MIC_API_SECRET` as well and both header
-styles are sent together.
+That is the only credential required. A dashboard-generated key authenticates
+with the `X-API-Key` header and has no secret at all.
+
+The provider also documents an older account-level scheme using an
+`Authorization` bearer plus `X-API-SECRET`. If you hold that pair instead, set
+`MIC_API_SECRET` as an ordinary environment variable (not a Firebase secret)
+and both header styles are sent together. It is deliberately not a
+`defineSecret`: a declared secret must exist in Secret Manager before any
+deploy succeeds, which would make an optional credential mandatory.
 
 The dashboard documents paths under `/api/...` while the docs page documents
 `/api/v1/...`, so the code tries both and remembers whichever answers.
