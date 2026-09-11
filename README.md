@@ -75,22 +75,30 @@ VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID,
 VITE_FIREBASE_APP_ID, VITE_FIREBASE_VAPID_KEY
 ```
 
-SMS, on the functions side. SMS Connect needs **both** credentials on every
-request:
+SMS, on the functions side:
 
 ```bash
-firebase functions:secrets:set MIC_API_KEY      # your "sms_..." API key
-firebase functions:secrets:set MIC_API_SECRET   # the secret shown once at login
+firebase functions:secrets:set MIC_API_KEY      # the "sms_..." key from Dashboard -> API Keys
 ```
 
-Optional env vars: `MIC_SENDER_ID` (max 11 characters, default `MICTOWER`) and
-`MIC_SMS_BASE_URL` (default `https://smsconnect.tech/api/v1`).
+That is all a dashboard-generated key needs — it authenticates with the
+`X-API-Key` header and has no secret. The provider also documents an older
+account-level scheme using an `Authorization` bearer plus `X-API-SECRET`; if
+you hold that pair instead, set `MIC_API_SECRET` as well and both header
+styles are sent together.
+
+The dashboard documents paths under `/api/...` while the docs page documents
+`/api/v1/...`, so the code tries both and remembers whichever answers.
+**Use the SMS panel in the Recovery or Admin portal to settle it**: it sends
+one real message and reports the endpoint, the headers used, and the
+provider's own reply. Override with `MIC_SMS_BASE_URL` if neither default is
+right, and `MIC_SENDER_ID` (max 11 characters, default `MICTOWER`).
 
 Two things about this provider shape the code:
 
 - **Messages cost 10 RWF from a prepaid wallet.** If it empties, reminders stop
-  and nobody would notice — so the balance is read from every send and recovery
-  gets a critical alert below 500 RWF.
+  and nobody would notice — so the balance is read from the wallet endpoint on
+  every health check and recovery gets a critical alert below 500 RWF.
 - **160 characters includes their 48-character brand link.** Bodies are capped
   at 112 so a long room number can never push a reminder into a second SMS.
 

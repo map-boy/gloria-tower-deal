@@ -12,6 +12,7 @@ import {
 } from '../../2_backend/services/dataService';
 import { BillCard } from '../components/BillCard';
 import { MessageThread } from '../components/MessageThread';
+import { SmsPanel } from '../components/SmsPanel';
 import {
   Banner, Button, Card, Empty, Field, Modal, PortalShell, Stat, Tabs, inputClass,
 } from '../components/ui';
@@ -144,6 +145,8 @@ export const AdminPortal: React.FC<{
       {tab === 'staff' && <StaffPanel staff={staff} currentEmail={email} />}
 
       {tab === 'system' && (
+        <>
+        <SmsPanel smsBalance={health?.smsBalance} />
         <Card className="space-y-3">
           <div className="font-black text-sm">Watchdog</div>
           {health ? (
@@ -167,6 +170,7 @@ export const AdminPortal: React.FC<{
             {formatCurrency(rates.waterPerUnit)} · rent {formatCurrency(rates.rentAmount)}
           </div>
         </Card>
+        </>
       )}
 
       <RoomEditor

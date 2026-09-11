@@ -187,6 +187,7 @@ export interface HealthReport {
   storageBytes: number;
   storageRatio: number;
   billingEnabled: boolean;
+  smsBalance?: number | null;
   notes: string[];
 }
 

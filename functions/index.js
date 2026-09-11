@@ -21,9 +21,13 @@ initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
 
-// SMS Connect credentials. Both are required on every request.
-//   firebase functions:secrets:set MIC_API_KEY
-//   firebase functions:secrets:set MIC_API_SECRET
+// SMS Connect credential.  firebase functions:secrets:set MIC_API_KEY
+//
+// A dashboard-generated key authenticates with the X-API-Key header on its
+// own. The older account-level scheme used an Authorization bearer plus an
+// X-API-SECRET; if you hold that pair instead, set MIC_API_SECRET too and
+// both header styles go out together. Optional on purpose -- a key with
+// sms.send permission needs no secret.
 const MIC_API_KEY = defineSecret("MIC_API_KEY");
 const MIC_API_SECRET = defineSecret("MIC_API_SECRET");
 
@@ -667,14 +671,20 @@ async function notifyStaff({ id, type, audience, severity, title, body, roomId, 
 // Both facts shape the code below: bodies are capped so the brand link cannot
 // push a message into a second SMS, and a drained wallet raises an alert
 // rather than letting reminders fail in silence.
-const SMS_BASE_URL = process.env.MIC_SMS_BASE_URL || "https://smsconnect.tech/api/v1";
+// The dashboard documents /api/... while the older docs page documents
+// /api/v1/... . Rather than bet on one, the first path that answers is
+// remembered and reused, and smsDiagnostics reports which it was.
+const SMS_BASE_CANDIDATES = (process.env.MIC_SMS_BASE_URL
+  ? [process.env.MIC_SMS_BASE_URL]
+  : ["https://smsconnect.tech/api", "https://smsconnect.tech/api/v1"]);
+
 const SMS_SENDER_ID = process.env.MIC_SENDER_ID || "MICTOWER";
 
 // 160 total, minus "\n\nPowered by SMSConnect: https://smsconnect.tech".
 const SMS_BODY_LIMIT = 112;
 
-// Reminders are worthless if the wallet empties mid-cycle, so warn while
-// there is still room to top up.
+// At 10 RWF a message this is 50 messages of warning, which is enough time to
+// top up before clients stop hearing from us.
 const LOW_BALANCE_RWF = 500;
 
 // The API accepts 2507XXXXXXXX or 07XXXXXXXX. Our stored phones are typed
@@ -693,11 +703,53 @@ function capSmsBody(text) {
   return `${clean.slice(0, SMS_BODY_LIMIT - 1).trimEnd()}\u2026`;
 }
 
+function smsHeaders() {
+  const apiKey = MIC_API_KEY.value() || process.env.MIC_API_KEY || "";
+  const apiSecret = MIC_API_SECRET.value() || process.env.MIC_API_SECRET || "";
+  const headers = {
+    "X-API-Key": apiKey,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  // Only meaningful for the account-level key/secret pair; a dashboard key
+  // authenticates on X-API-Key alone.
+  if (apiSecret) {
+    headers.Authorization = `Bearer ${apiKey}`;
+    headers["X-API-SECRET"] = apiSecret;
+  }
+  return { headers, apiKey };
+}
+
+// Remembered for the life of the instance so we stop probing once something
+// answers.
+let workingSmsBase = null;
+
+async function smsFetch(path, options) {
+  const bases = workingSmsBase ? [workingSmsBase] : SMS_BASE_CANDIDATES;
+  let lastError = null;
+
+  for (const base of bases) {
+    try {
+      const res = await fetch(`${base}${path}`, options);
+      // A 404 means this base is not where the API lives; anything else is a
+      // real answer, including a 401 or a 400 we must surface.
+      if (res.status === 404 && bases.length > 1) {
+        lastError = new Error(`404 at ${base}${path}`);
+        continue;
+      }
+      workingSmsBase = base;
+      return res;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError || new Error("No SMS endpoint answered");
+}
+
 async function sendSms(phone, text, context) {
   const recipient = toSmsRecipient(phone);
   const message = capSmsBody(text);
-  const apiKey = MIC_API_KEY.value() || process.env.MIC_API_KEY || "";
-  const apiSecret = MIC_API_SECRET.value() || process.env.MIC_API_SECRET || "";
+  const { headers, apiKey } = smsHeaders();
 
   const record = {
     to: recipient || String(phone || ""),
@@ -714,30 +766,21 @@ async function sendSms(phone, text, context) {
     });
     return false;
   }
-  if (!apiKey || !apiSecret) {
+  if (!apiKey) {
     await db.collection("smsLog").add({
       ...record,
       status: "not_configured",
-      error: "MIC_API_KEY or MIC_API_SECRET is not set",
+      error: "MIC_API_KEY is not set",
     });
-    console.warn(`SMS not sent (no credentials): ${recipient}`);
+    console.warn(`SMS not sent (no API key): ${recipient}`);
     return false;
   }
 
   try {
-    const res = await fetch(`${SMS_BASE_URL}/sms/send`, {
+    const res = await smsFetch("/sms/send", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "X-API-SECRET": apiSecret,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        recipient,
-        message,
-        sender_id: SMS_SENDER_ID,
-      }),
+      headers,
+      body: JSON.stringify({ recipient, message, sender_id: SMS_SENDER_ID }),
     });
 
     let payload = null;
@@ -801,6 +844,97 @@ async function sendSms(phone, text, context) {
     return false;
   }
 }
+
+// Reads the wallet directly rather than waiting for a send to report it, so
+// an empty balance is caught before a reminder silently fails.
+async function readSmsBalance() {
+  const { headers, apiKey } = smsHeaders();
+  if (!apiKey) return null;
+  try {
+    const res = await smsFetch("/wallet/balance", { method: "GET", headers });
+    const payload = await res.json().catch(() => null);
+    if (!res.ok || !payload) return null;
+    const data = payload.data || payload;
+    const balance = Number(data.balance ?? data.wallet_balance);
+    return Number.isFinite(balance) ? balance : null;
+  } catch (e) {
+    console.error("Could not read SMS balance", e);
+    return null;
+  }
+}
+
+// Sends one real message and reports exactly what came back: which base URL
+// answered, the HTTP status, and the provider's own message. The provider's
+// dashboard and its docs page disagree about the path and the auth headers,
+// so this settles it with evidence instead of a guess.
+exports.smsDiagnostics = onCall(
+  { secrets: [MIC_API_KEY, MIC_API_SECRET] },
+  async (request) => {
+    await requireRole(request.auth, "admin", "recovery");
+    const { phone } = request.data || {};
+    const recipient = toSmsRecipient(phone);
+    if (!recipient) {
+      throw new HttpsError("invalid-argument", "Enter a Rwandan phone number to test with");
+    }
+
+    const { headers, apiKey } = smsHeaders();
+    const attempts = [];
+
+    if (!apiKey) {
+      return {
+        ok: false,
+        recipient,
+        attempts,
+        summary: "MIC_API_KEY is not set. Run: firebase functions:secrets:set MIC_API_KEY",
+      };
+    }
+
+    // Probe every candidate so the result shows which one works, even when
+    // the first already succeeds.
+    for (const base of SMS_BASE_CANDIDATES) {
+      try {
+        const res = await fetch(`${base}/sms/send`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            recipient,
+            message: "MIC Tower test message. If you got this, SMS is working.",
+            sender_id: SMS_SENDER_ID,
+          }),
+        });
+        const payload = await res.json().catch(() => null);
+        attempts.push({
+          base,
+          httpStatus: res.status,
+          ok: !!(res.ok && payload && payload.success),
+          providerMessage: (payload && payload.message) || null,
+          balance: (payload && payload.data && payload.data.balance) ?? null,
+        });
+        if (res.ok && payload && payload.success) {
+          workingSmsBase = base;
+          break;
+        }
+      } catch (e) {
+        attempts.push({ base, httpStatus: null, ok: false, providerMessage: String(e) });
+      }
+    }
+
+    const winner = attempts.find((a) => a.ok);
+    const balance = await readSmsBalance();
+
+    return {
+      ok: !!winner,
+      recipient,
+      usingSecret: !!(MIC_API_SECRET.value() || process.env.MIC_API_SECRET),
+      workingBase: winner ? winner.base : null,
+      balance,
+      attempts,
+      summary: winner
+        ? `Sent via ${winner.base}. Check the phone.`
+        : `No endpoint accepted the message. ${attempts.map((a) => `${a.base}: ${a.httpStatus ?? "no response"} ${a.providerMessage ?? ""}`).join(" | ")}`,
+    };
+  }
+);
 
 // Reminder 1 of 2: fires the moment the technician's reading becomes a bill.
 exports.onBillCreated = onDocumentCreated(
@@ -1055,7 +1189,22 @@ async function runHealthCheck() {
     notes.push(`Firestore is not answering: ${e.message || e}`);
   }
 
-  // 4. Bills that never got their first SMS -- the sign the SMS provider or
+  // 4. The SMS wallet. Reminders are prepaid, so an empty wallet stops them
+  //    dead while the 5 day clock keeps running.
+  let smsBalance = null;
+  try {
+    smsBalance = await readSmsBalance();
+    if (smsBalance !== null && smsBalance <= LOW_BALANCE_RWF) {
+      ok = false;
+      notes.push(
+        `SMS wallet down to ${smsBalance} RWF (about ${Math.floor(smsBalance / 10)} messages).`
+      );
+    }
+  } catch (e) {
+    notes.push(`Could not read the SMS wallet: ${e.message || e}`);
+  }
+
+  // 5. Bills that never got their first SMS -- the sign the SMS provider or
   //    the trigger is broken, which clients would feel as silence.
   let smsFailures = 0;
   try {
@@ -1084,6 +1233,7 @@ async function runHealthCheck() {
     billCount: usage ? usage.billCount : 0,
     roomCount: usage ? usage.roomCount : 0,
     smsFailures,
+    smsBalance,
     notes,
   };
 
@@ -1104,17 +1254,26 @@ async function runHealthCheck() {
 }
 
 exports.watchdog = onSchedule(
-  { schedule: "0 */6 * * *", timeZone: "Africa/Kigali", maxInstances: 1, retryCount: 0 },
+  {
+    schedule: "0 */6 * * *",
+    timeZone: "Africa/Kigali",
+    maxInstances: 1,
+    retryCount: 0,
+    secrets: [MIC_API_KEY, MIC_API_SECRET],
+  },
   async () => {
     const report = await runHealthCheck();
     console.log(`Health: ${report.ok ? "OK" : "PROBLEM"} ${report.notes.join(" | ")}`);
   }
 );
 
-exports.runHealthCheckNow = onCall(async (request) => {
-  await requireRole(request.auth, "admin", "recovery");
-  return runHealthCheck();
-});
+exports.runHealthCheckNow = onCall(
+  { secrets: [MIC_API_KEY, MIC_API_SECRET] },
+  async (request) => {
+    await requireRole(request.auth, "admin", "recovery");
+    return runHealthCheck();
+  }
+);
 
 // ---------------------------------------------------------------------------
 // Billing kill switch

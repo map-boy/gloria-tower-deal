@@ -12,6 +12,7 @@ import {
 import { BillCard } from '../components/BillCard';
 import { MessageThread } from '../components/MessageThread';
 import { ProofImage } from '../components/ProofImage';
+import { SmsPanel } from '../components/SmsPanel';
 import {
   Banner, Button, Card, Empty, Field, Modal, PortalShell, Stat, Tabs, inputClass,
 } from '../components/ui';
@@ -200,6 +201,7 @@ export const RecoveryPortal: React.FC<{
 
       {tab === 'alerts' && (
         <div className="space-y-3">
+          <SmsPanel smsBalance={health?.smsBalance} />
           <Card className="space-y-2">
             <div className="font-black text-sm">System watchdog</div>
             {health ? (

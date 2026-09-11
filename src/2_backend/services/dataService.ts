@@ -65,6 +65,26 @@ export const markProofDownloaded = (billId: string) =>
 export const deleteRoom = (roomId: string) =>
   call<{ roomId: string }, { ok: boolean; deletedBills: number }>('deleteRoom')({ roomId }).then((r) => r.data);
 
+export interface SmsDiagnostics {
+  ok: boolean;
+  recipient: string;
+  usingSecret: boolean;
+  workingBase: string | null;
+  balance: number | null;
+  summary: string;
+  attempts: Array<{
+    base: string;
+    httpStatus: number | null;
+    ok: boolean;
+    providerMessage: string | null;
+  }>;
+}
+
+// Sends one real message and reports what the provider said, so the SMS setup
+// can be proven without waiting for a bill to go out.
+export const smsDiagnostics = (phone: string) =>
+  call<{ phone: string }, SmsDiagnostics>('smsDiagnostics')({ phone }).then((r) => r.data);
+
 export const runHealthCheckNow = () =>
   call<Record<string, never>, HealthReport>('runHealthCheckNow')({}).then((r) => r.data);
 
