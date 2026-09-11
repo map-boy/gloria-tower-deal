@@ -75,36 +75,32 @@ VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID,
 VITE_FIREBASE_APP_ID, VITE_FIREBASE_VAPID_KEY
 ```
 
-SMS, on the functions side:
+SMS, on the functions side. **Set both before deploying** — a declared secret
+is resolved at deploy time, so a missing one fails the whole deploy:
 
 ```bash
-firebase functions:secrets:set MIC_API_KEY      # the "sms_..." key from Dashboard -> API Keys
+firebase functions:secrets:set MIC_API_KEY      # the "sms_..." key
+firebase functions:secrets:set MIC_API_SECRET   # the matching secret
 ```
 
-That is the only credential required. A dashboard-generated key authenticates
-with the `X-API-Key` header and has no secret at all.
+Optional env vars: `MIC_SENDER_ID` (max 11 characters, default `MICTOWER`) and
+`MIC_SMS_BASE_URL` to pin the endpoint.
 
-The provider also documents an older account-level scheme using an
-`Authorization` bearer plus `X-API-SECRET`. If you hold that pair instead, set
-`MIC_API_SECRET` as an ordinary environment variable (not a Firebase secret)
-and both header styles are sent together. It is deliberately not a
-`defineSecret`: a declared secret must exist in Secret Manager before any
-deploy succeeds, which would make an optional credential mandatory.
-
-The dashboard documents paths under `/api/...` while the docs page documents
-`/api/v1/...`, so the code tries both and remembers whichever answers.
-**Use the SMS panel in the Recovery or Admin portal to settle it**: it sends
-one real message and reports the endpoint, the headers used, and the
-provider's own reply. Override with `MIC_SMS_BASE_URL` if neither default is
-right, and `MIC_SENDER_ID` (max 11 characters, default `MICTOWER`).
+The provider's dashboard and its docs page describe different paths and
+different headers, and testing showed `/api` returns 404 while `/api/v1`
+returns 401 to a bare `X-API-Key`. So nothing is assumed: the **SMS panel** in
+the Recovery or Admin portal sends one real message, walks every base and
+header combination, and reports which the server accepted. The winner is
+stored in `config/smsRoute` and reused.
 
 Two things about this provider shape the code:
 
 - **Messages cost 15 RWF from a prepaid wallet.** If it empties, reminders stop
-  and nobody would notice — so the balance is read from the wallet endpoint on
-  every health check and recovery gets a critical alert below 450 RWF.
+  and nobody would notice — so the balance is read on every health check and
+  recovery gets a critical alert below 450 RWF.
 - **160 characters includes their 48-character brand link.** Bodies are capped
-  at 112 so a long room number can never push a reminder into a second SMS.
+  at 112, and the compose box counts against that rather than letting a
+  message be cut.
 
 Phone numbers are normalised to the `250XXXXXXXXX` form the API requires,
 whatever way they were typed.

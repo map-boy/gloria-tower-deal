@@ -31,15 +31,17 @@ initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
 
-// SMS Connect credential.  firebase functions:secrets:set MIC_API_KEY
+// SMS Connect credentials. Both must exist in Secret Manager before a deploy
+// will succeed -- a declared secret is resolved at deploy time:
+//   firebase functions:secrets:set MIC_API_KEY
+//   firebase functions:secrets:set MIC_API_SECRET
 //
-// A dashboard-generated key authenticates with the X-API-Key header on its
-// own, so that is the only required credential. The provider also documents
-// an older account-level scheme needing an Authorization bearer plus an
-// X-API-SECRET; that one is read from a plain env var rather than
-// defineSecret, because a declared secret must exist in Secret Manager at
-// deploy time and this one legitimately does not.
+// The provider's /api/v1 route answers "Missing API credentials" to a bare
+// X-API-Key, so the secret is what actually unlocks it. It belongs in Secret
+// Manager rather than a plain env var: env vars for functions live in a file
+// on disk, and this one can send messages that cost real money.
 const MIC_API_KEY = defineSecret("MIC_API_KEY");
+const MIC_API_SECRET = defineSecret("MIC_API_SECRET");
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -725,7 +727,7 @@ function capSmsBody(text) {
 function smsCredentials() {
   return {
     apiKey: MIC_API_KEY.value() || process.env.MIC_API_KEY || "",
-    apiSecret: process.env.MIC_API_SECRET || "",
+    apiSecret: MIC_API_SECRET.value() || process.env.MIC_API_SECRET || "",
   };
 }
 
@@ -928,7 +930,7 @@ async function readSmsBalance() {
 // answered, the HTTP status, and the provider's own message. The provider's
 // dashboard and its docs page disagree about the path and the auth headers,
 // so this settles it with evidence instead of a guess.
-exports.smsDiagnostics = onCall({ secrets: [MIC_API_KEY] }, async (request) => {
+exports.smsDiagnostics = onCall({ secrets: [MIC_API_KEY, MIC_API_SECRET] }, async (request) => {
   await requireRole(request.auth, "admin", "recovery");
   const { phone, message } = request.data || {};
   const recipient = toSmsRecipient(phone);
@@ -1007,7 +1009,7 @@ exports.smsDiagnostics = onCall({ secrets: [MIC_API_KEY] }, async (request) => {
   return {
     ok: !!winner,
     recipient,
-    usingSecret: !!process.env.MIC_API_SECRET,
+    usingSecret: !!smsCredentials().apiSecret,
     workingBase: winner ? winner.base : null,
     workingScheme: winner ? winner.name : null,
     balance,
@@ -1023,7 +1025,7 @@ exports.smsDiagnostics = onCall({ secrets: [MIC_API_KEY] }, async (request) => {
 
 // Recovery and admin can write a message and send it to chosen clients --
 // a warning, a notice, anything the automatic reminders do not cover.
-exports.sendCustomSms = onCall({ secrets: [MIC_API_KEY] }, async (request) => {
+exports.sendCustomSms = onCall({ secrets: [MIC_API_KEY, MIC_API_SECRET] }, async (request) => {
   await requireRole(request.auth, "admin", "recovery");
   const { roomIds, message } = request.data || {};
 
@@ -1063,7 +1065,7 @@ exports.sendCustomSms = onCall({ secrets: [MIC_API_KEY] }, async (request) => {
 
 // Reminder 1 of 2: fires the moment the technician's reading becomes a bill.
 exports.onBillCreated = onDocumentCreated(
-  { document: "bills/{billId}", secrets: [MIC_API_KEY] },
+  { document: "bills/{billId}", secrets: [MIC_API_KEY, MIC_API_SECRET] },
   async (event) => {
     const bill = event.data ? event.data.data() : null;
     if (!bill) return;
@@ -1098,7 +1100,7 @@ exports.dailyBillingSweep = onSchedule(
     timeZone: "Africa/Kigali",
     timeoutSeconds: 300,
     retryCount: 0,
-    secrets: [MIC_API_KEY],
+    secrets: [MIC_API_KEY, MIC_API_SECRET],
   },
   async () => {
     const nowIso = new Date().toISOString();
@@ -1382,7 +1384,7 @@ exports.watchdog = onSchedule(
     schedule: "0 */6 * * *",
     timeZone: "Africa/Kigali",
     retryCount: 0,
-    secrets: [MIC_API_KEY],
+    secrets: [MIC_API_KEY, MIC_API_SECRET],
   },
   async () => {
     const report = await runHealthCheck();
@@ -1391,7 +1393,7 @@ exports.watchdog = onSchedule(
 );
 
 exports.runHealthCheckNow = onCall(
-  { secrets: [MIC_API_KEY] },
+  { secrets: [MIC_API_KEY, MIC_API_SECRET] },
   async (request) => {
     await requireRole(request.auth, "admin", "recovery");
     return runHealthCheck();
