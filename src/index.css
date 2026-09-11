@@ -1,2 +1,23 @@
 @import "tailwindcss";
-@custom-variant dark (&:where(.dark, .dark *));
+
+/* Luxury Emerald. Green carries the app, amber flags "needs attention",
+   red flags "overdue or broken". Nothing else competes for the eye. */
+@theme {
+  --color-emerald-deep: #0B3D2E;
+  --color-emerald-mid: #1F6E52;
+  --color-emerald-dark: #072A20;
+  --color-gold: #C9A227;
+  --color-gold-soft: #E3C25A;
+  --color-bone: #F5F1E6;
+  --color-alert: #B3261E;
+  --color-alert-soft: #E5544B;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-emerald-dark);
+  color: var(--color-bone);
+}

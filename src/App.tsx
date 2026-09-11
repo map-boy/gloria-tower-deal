@@ -1,62 +1,51 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { DEFAULT_RATES, Rates, Room } from './1_core/domain/types';
+import { signOutUser } from './2_backend/services/authService';
+import { watchRates, watchRoom } from './2_backend/services/dataService';
 import {
-  AppNotification,
-  Room,
-  ServiceType,
-  Submission,
-  SubmissionStatus,
-} from './1_core/domain/types';
-import { storageService } from './2_backend/services/storageService';
-import { useVoltraStore, useAuthRole } from './3_frontend/hooks/useVoltraStore';
-import { useAccessGate } from './3_frontend/hooks/useAccessGate';
-import { signInWithGoogle, signOutUser } from './2_backend/services/authService';
-import {
-  registerForNotifications,
-  listenForForegroundMessages,
-  subscribeToNotifications,
-  markNotificationRead,
+  listenForForegroundMessages, registerForNotifications,
 } from './2_backend/services/notificationService';
-import { RoomEntryForm } from './3_frontend/components/RoomEntryForm';
-import { TenantHome } from './3_frontend/components/TenantHome';
-import { AdminDashboard } from './3_frontend/components/AdminDashboard';
+import { LoginScreen } from './3_frontend/components/LoginScreen';
+import { AdminPortal } from './3_frontend/portals/AdminPortal';
+import { ClientPortal } from './3_frontend/portals/ClientPortal';
+import { RecoveryPortal } from './3_frontend/portals/RecoveryPortal';
+import { TechnicianPortal } from './3_frontend/portals/TechnicianPortal';
+import { useSession } from './3_frontend/hooks/useSession';
 
 export default function App() {
-  const gate = useAccessGate();
-  const { role: authRole, firebaseUser, checkingAdmin } = useAuthRole();
-  const store = useVoltraStore();
-
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
-  const [focusSubmission, setFocusSubmission] = useState<Submission | null>(null);
-  const [signingIn, setSigningIn] = useState(false);
+  const session = useSession();
+  const [rates, setRates] = useState<Rates>(DEFAULT_RATES);
+  const [room, setRoom] = useState<Room | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const isAdmin = authRole === 'admin';
-  const isTenant = !isAdmin && gate.role === 'tenant' && !!gate.roomId;
-  const effectiveRole: 'admin' | 'tenant' | null = isAdmin ? 'admin' : isTenant ? 'tenant' : null;
+  const isStaff = !!session.staffRole;
+  const isClient = !isStaff && !!session.client;
 
-  // Point the data layer at exactly what this person is allowed to see.
+  // Prices are readable by anyone signed in -- a client has to see the rate
+  // their own bill came from.
   useEffect(() => {
-    if (!gate.authReady) return;
-    storageService.setAuthContext(effectiveRole, isAdmin ? null : gate.roomId, gate.uid);
-  }, [gate.authReady, gate.uid, gate.roomId, effectiveRole, isAdmin]);
+    if (!session.ready) return;
+    return watchRates(setRates);
+  }, [session.ready]);
 
-  // Admin-only: the bell feed, plus a push when the app is in the background.
   useEffect(() => {
-    if (!isAdmin) {
-      setNotifications([]);
+    if (!isClient || !session.client) {
+      setRoom(null);
       return;
     }
-    const unsubNotifications = subscribeToNotifications(setNotifications);
-    registerForNotifications('admin');
-    const unsubMessages = listenForForegroundMessages((title, body) =>
-      setToast(`${title} — ${body}`)
-    );
-    return () => {
-      unsubNotifications();
-      unsubMessages();
-    };
-  }, [isAdmin]);
+    // If the room is gone or this device lost it, end the session rather than
+    // leave the client staring at a loading screen forever.
+    return watchRoom(session.client.roomId, setRoom, () => {
+      session.clearClientSession();
+      setRoom(null);
+    });
+  }, [isClient, session.client?.roomId]);
+
+  useEffect(() => {
+    if (!session.staffRole) return;
+    registerForNotifications(session.staffRole);
+    return listenForForegroundMessages((title, body) => setToast(`${title} — ${body}`));
+  }, [session.staffRole]);
 
   useEffect(() => {
     if (!toast) return;
@@ -64,204 +53,52 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const rooms = useMemo(() => store.getRooms(), [store.dataVersion]);
-  const submissions = useMemo(() => store.getSubmissions(), [store.dataVersion]);
-
-  const getScreenshotUrl = useCallback(
-    (path: string) => storageService.getScreenshotUrl(path),
-    []
-  );
-
-  // --- Tenant actions ---
-
-  const tenantRoom = isTenant ? rooms.find((r) => r.id === gate.roomId) : undefined;
-
-  const handleTenantSubmit = useCallback(
-    async (input: {
-      serviceType: ServiceType;
-      meterReading?: string;
-      amountReported: number;
-      note?: string;
-      screenshotPath?: string;
-    }) => {
-      if (!tenantRoom || !gate.uid) return;
-      await store.createSubmission({
-        roomId: tenantRoom.id,
-        roomNumber: tenantRoom.roomNumber,
-        tenantName: tenantRoom.tenantName,
-        tenantUid: gate.uid,
-        ...input,
-      });
-    },
-    [tenantRoom, gate.uid, store]
-  );
-
-  const handleUploadScreenshot = useCallback(
-    (file: File) => {
-      if (!tenantRoom) throw new Error('No room');
-      return store.uploadPaymentScreenshot(tenantRoom.id, file);
-    },
-    [tenantRoom, store]
-  );
-
-  // --- Admin actions ---
-
-  const handleOpenNotification = useCallback(
-    (n: AppNotification) => {
-      if (!n.read) markNotificationRead(n.id).catch(() => undefined);
-      // Free tier warnings are not about any one room, so there is nothing
-      // to open -- marking them read is the whole interaction.
-      if (!n.roomId || !n.submissionId) return;
-      setSelectedRoomId(n.roomId);
-      const submission = storageService.getSubmissionById(n.submissionId);
-      if (submission) setFocusSubmission(submission);
-    },
-    []
-  );
-
-  const handleSaveReview = useCallback(
-    async (
-      submissionId: string,
-      updates: {
-        status: SubmissionStatus;
-        amountConfirmed: number;
-        amountReported: number;
-        serviceType: ServiceType;
-        meterReading?: string;
-        adminNote?: string;
-      }
-    ) => {
-      await store.reviewSubmission(submissionId, firebaseUser?.email || 'admin', {
-        status: updates.status,
-        amountConfirmed: updates.amountConfirmed,
-        amountReported: updates.amountReported,
-        serviceType: updates.serviceType,
-        meterReading: updates.meterReading ?? '',
-        adminNote: updates.adminNote ?? '',
-      });
-    },
-    [store, firebaseUser]
-  );
-
-  const handleSaveRoom = useCallback(
-    (
-      roomId: string,
-      updates: Partial<
-        Pick<
-          Room,
-          | 'roomNumber'
-          | 'tenantName'
-          | 'tenantPhone'
-          | 'hasElectricity'
-          | 'hasWater'
-          | 'hasRent'
-          | 'active'
-        >
-      >
-    ) => store.updateRoom(roomId, updates),
-    [store]
-  );
-
-  const handleAdminSignIn = async () => {
-    setSigningIn(true);
-    try {
-      await signInWithGoogle();
-    } finally {
-      setSigningIn(false);
-    }
+  const logout = async () => {
+    session.clearClientSession();
+    if (session.user && !session.user.isAnonymous) await signOutUser();
   };
 
-  const handleLogout = useCallback(async () => {
-    setSelectedRoomId(null);
-    setFocusSubmission(null);
-    gate.logout();
-    if (firebaseUser && !firebaseUser.isAnonymous) {
-      await signOutUser();
-    }
-  }, [gate, firebaseUser]);
-
-  // --- Screens ---
-
-  if (!gate.authReady || checkingAdmin) {
+  if (!session.ready) {
     return (
-      <div className="min-h-screen bg-neutral-200 flex items-center justify-center font-mono text-black text-sm">
+      <div className="min-h-screen bg-emerald-dark text-bone flex items-center justify-center text-sm">
         Loading...
       </div>
     );
   }
 
-  if (isAdmin) {
-    return (
-      <>
-        {toast && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-black text-white font-mono text-xs px-4 py-3 rounded-xl border-2 border-black max-w-sm">
-            {toast}
-          </div>
-        )}
-        <AdminDashboard
-          rooms={rooms}
-          submissions={submissions}
-          notifications={notifications}
-          adminLabel={firebaseUser?.email || 'admin'}
-          getScreenshotUrl={getScreenshotUrl}
-          onOpenNotification={handleOpenNotification}
-          onSaveReview={handleSaveReview}
-          onDeleteSubmission={store.deleteSubmission}
-          onSaveRoom={handleSaveRoom}
-          onFreeRoom={store.freeRoom}
-          selectedRoomId={selectedRoomId}
-          onSelectRoom={setSelectedRoomId}
-          focusSubmission={
-            focusSubmission
-              ? storageService.getSubmissionById(focusSubmission.id) ?? focusSubmission
-              : null
-          }
-          onClearFocusSubmission={() => setFocusSubmission(null)}
-          onLogout={handleLogout}
-        />
-      </>
-    );
+  const banner = toast && (
+    <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[60] bg-gold text-emerald-dark text-xs font-bold px-4 py-3 rounded-xl max-w-sm">
+      {toast}
+    </div>
+  );
+
+  if (session.staffRole === 'admin') {
+    return <>{banner}<AdminPortal email={session.email} rates={rates} onLogout={logout} /></>;
+  }
+  if (session.staffRole === 'recovery') {
+    return <>{banner}<RecoveryPortal email={session.email} rates={rates} onLogout={logout} /></>;
+  }
+  if (session.staffRole === 'technician') {
+    return <>{banner}<TechnicianPortal email={session.email} rates={rates} onLogout={logout} /></>;
   }
 
-  if (isTenant) {
-    if (!tenantRoom) {
+  if (isClient) {
+    if (!room) {
       return (
-        <div className="min-h-screen bg-neutral-200 flex items-center justify-center font-mono text-black text-sm">
+        <div className="min-h-screen bg-emerald-dark text-bone flex items-center justify-center text-sm">
           Loading your room...
         </div>
       );
     }
-    return (
-      <TenantHome
-        room={tenantRoom}
-        submissions={submissions}
-        onUploadScreenshot={handleUploadScreenshot}
-        onSubmit={handleTenantSubmit}
-        getScreenshotUrl={getScreenshotUrl}
-        onLogout={handleLogout}
-      />
-    );
+    return <ClientPortal room={room} rates={rates} onLogout={logout} />;
   }
 
-  const signedInNotAdmin = !!firebaseUser && !firebaseUser.isAnonymous;
-
   return (
-    <div className="relative">
-      <RoomEntryForm onSubmit={gate.enterRoom} />
-      <div className="fixed bottom-4 left-0 right-0 flex flex-col items-center gap-2 px-4">
-        {signedInNotAdmin && (
-          <p className="font-mono text-[11px] text-red-600 bg-white border-2 border-black rounded-xl px-3 py-2 text-center">
-            {firebaseUser?.email} is not an admin on this building.
-          </p>
-        )}
-        <button
-          onClick={signedInNotAdmin ? handleLogout : handleAdminSignIn}
-          disabled={signingIn}
-          className="px-4 py-2 bg-white hover:bg-neutral-100 disabled:opacity-50 border-2 border-black rounded-xl font-mono font-bold text-xs text-black cursor-pointer"
-        >
-          {signingIn ? 'Opening...' : signedInNotAdmin ? 'Sign out' : 'I am the admin'}
-        </button>
-      </div>
-    </div>
+    <LoginScreen
+      onClientIn={session.startClientSession}
+      signedInEmail={session.email}
+      notStaff={!!session.user && !session.user.isAnonymous && !session.staffRole}
+      onSignOut={logout}
+    />
   );
 }
