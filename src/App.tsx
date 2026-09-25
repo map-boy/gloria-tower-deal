@@ -12,6 +12,8 @@ import { RecoveryPortal } from './3_frontend/portals/RecoveryPortal';
 import { TechnicianPortal } from './3_frontend/portals/TechnicianPortal';
 import { useSession } from './3_frontend/hooks/useSession';
 
+const SYSTEM_PAID = false; // set to true and remove this gate once paid
+
 export default function App() {
   const session = useSession();
   const [rates, setRates] = useState<Rates>(DEFAULT_RATES);
@@ -62,6 +64,18 @@ export default function App() {
     return (
       <div className="min-h-screen bg-emerald-dark text-bone flex items-center justify-center text-sm">
         Loading...
+      </div>
+    );
+  }
+
+  if (!SYSTEM_PAID) {
+    return (
+      <div className="min-h-screen bg-emerald-dark text-bone flex items-center justify-center text-center p-6">
+        <div>
+          <h1 className="text-xl font-bold mb-2">Payment Required</h1>
+          <p className="text-sm">Ishyura abakoze system kugirango ukomeze kuyikoresha.</p>
+          <p className="text-sm mt-2 text-bone/70">Access to this system is paused pending payment. Please contact your service provider to restore access.</p>
+        </div>
       </div>
     );
   }
